@@ -21,14 +21,34 @@
 import os
 import sys
 import argparse
+import shutil
 from pathlib import Path
+
+
+def clear_tasks_directory(root_dir):
+    """
+    .tasks/ディレクトリを削除する
+    
+    ドキュメント対応箇所：docs/タスク生成ツール.md 9行目
+    「オプショナルの引数"--clear"を指定した場合、ルートディレクトリにすでに存在している
+    .tasks/ディレクトリを起動時に全て削除する。」
+    
+    Args:
+        root_dir (str): ルートディレクトリのパス
+    """
+    tasks_root = os.path.join(root_dir, ".tasks")
+    if os.path.exists(tasks_root):
+        shutil.rmtree(tasks_root)
+        print(f".tasks/ディレクトリを削除しました: {tasks_root}")
+    else:
+        print(f".tasks/ディレクトリは存在しませんでした: {tasks_root}")
 
 
 def create_task_directories(root_dir):
     """
     タスク管理用ディレクトリ構造を作成する
     
-    ドキュメント対応箇所：docs/タスク生成ツール.md 15行目
+    ドキュメント対応箇所：docs/タスク生成ツール.md 17行目
     「タスク生成ツールを起動すると、ルートディレクトリの下に、.tasks/ディレクトリを生成し、
     さらにその下に、pending、working、done、failedというサブディレクトリを作る。」
     
@@ -192,6 +212,7 @@ def main():
   
 オプション:
   --root-dir:          ルートディレクトリのパス（デフォルト：カレントディレクトリ）
+  --clear:             起動時に.tasks/ディレクトリを削除する
         """
     )
     
@@ -207,11 +228,20 @@ def main():
     
     # ドキュメント対応箇所：docs/タスク生成ツール.md 7行目
     # 「さらにオプショナル引数でルートディレクトリパスを指定する。
-    # なお、デフォルトのルートディレクトリはカレントディレクトリとする。」
+    # なお、デフォルトのルートディレクトリはスクリプトを実行した時のカレントディレクトリとする。」
     parser.add_argument(
         '--root-dir',
         default=os.getcwd(),
         help='ルートディレクトリのパス（デフォルト：カレントディレクトリ）'
+    )
+    
+    # ドキュメント対応箇所：docs/タスク生成ツール.md 9行目
+    # 「オプショナルの引数"--clear"を指定した場合、ルートディレクトリにすでに存在している
+    # .tasks/ディレクトリを起動時に全て削除する。」
+    parser.add_argument(
+        '--clear',
+        action='store_true',
+        help='.tasks/ディレクトリを起動時に削除する'
     )
     
     args = parser.parse_args()
@@ -221,7 +251,14 @@ def main():
         print(f"業務プロンプトファイル: {args.business_prompt_file}")
         print(f"ターゲットリストファイル: {args.target_list_file}")
         print(f"ルートディレクトリ: {args.root_dir}")
+        print(f"--clearオプション: {args.clear}")
         print()
+        
+        # Step 0: --clearオプションが指定された場合、.tasks/ディレクトリを削除
+        if args.clear:
+            print("0. .tasks/ディレクトリを削除中...")
+            clear_tasks_directory(args.root_dir)
+            print()
         
         # Step 1: タスク管理用ディレクトリ構造を作成
         print("1. タスク管理用ディレクトリ構造を作成中...")
