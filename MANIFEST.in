@@ -1,0 +1,45 @@
+# パッケージに含めるファイルを明示的に指定
+
+# ドキュメント関連
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include docs *.md *.rst *.txt
+
+# 設定ファイル
+include pyproject.toml
+include setup.py
+include setup.cfg
+include requirements*.txt
+
+# パッケージデータ
+recursive-include tools *.py
+include tools/__init__.py
+
+# 除外するファイル/ディレクトリ
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude .git*
+global-exclude .coverage
+global-exclude .pytest_cache
+
+# 仮想環境とビルド成果物を除外
+prune venv
+prune .venv
+prune env
+prune .env
+prune build
+prune dist
+prune *.egg-info
+prune .tox
+prune .mypy_cache
+prune .pytest_cache
+
+# IDEファイルを除外
+prune .idea
+prune .vscode
+prune *.sublime-*
