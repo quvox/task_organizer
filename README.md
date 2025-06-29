@@ -29,15 +29,14 @@
 ### GitHubから直接インストール
 ```bash
 # 最新版をインストール
-pip install https://github.com/quvox/task_organizer.git
+pip install git+https://github.com/quvox/task_organizer.git
 
 # 特定のブランチまたはタグをインストール
-pip install https://github.com/quvox/task_organizer.git@branch-name
-pip install https://github.com/quvox/task_organizer.git@v1.0.0
-
+pip install git+https://github.com/quvox/task_organizer.git@branch-name
+pip install git+https://github.com/quvox/task_organizer.git@v1.0.0
 
 # 開発依存関係を含むインストール
-pip install "https://github.com/quvox/task_organizer.git[dev]"
+pip install "git+https://github.com/quvox/task_organizer.git[dev]"
 ```
 
 ### ローカル開発時のインストール
@@ -61,7 +60,7 @@ source venv/bin/activate  # Linux/Mac
 # または venv\Scripts\activate  # Windows
 
 # GitHubから直接インストール
-pip install https://github.com/quvox/task_organizer.git
+pip install git+https://github.com/quvox/task_organizer.git
 ```
 
 ## 使用方法
