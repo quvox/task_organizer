@@ -69,7 +69,8 @@ class TaskWorker:
             try:
                 # 離脱メッセージ送信
                 leave_message = {"type": "LEAVE", "msg": ""}
-                self.socket.send(json.dumps(leave_message).encode('utf-8'))
+                message_data = json.dumps(leave_message) + '\n'
+                self.socket.send(message_data.encode('utf-8'))
             except Exception as e:
                 logger.error(f"離脱メッセージ送信エラー: {e}")
     
@@ -139,7 +140,8 @@ class TaskWorker:
             "msg": self.worker_id
         }
         
-        self.socket.send(json.dumps(join_message).encode('utf-8'))
+        message_data = json.dumps(join_message) + '\n'
+        self.socket.send(message_data.encode('utf-8'))
         logger.info("参入メッセージを送信しました")
         
         # 参入応答待ち
@@ -186,13 +188,18 @@ class TaskWorker:
             data = self.socket.recv(4096).decode('utf-8', errors='replace')
             
             if data:
-                try:
-                    message = json.loads(data)
-                    self._handle_master_message(message)
-                except json.JSONDecodeError as je:
-                    logger.error(f"JSON解析エラー: {je}")
-                    logger.debug(f"受信データ: {repr(data)}")
-                    # JSON解析エラーは続行可能
+                # 改行で区切られた複数のJSONメッセージに対応
+                lines = data.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        try:
+                            message = json.loads(line)
+                            self._handle_master_message(message)
+                        except json.JSONDecodeError as je:
+                            logger.error(f"JSON解析エラー: {je}")
+                            logger.debug(f"受信データ行: {repr(line)}")
+                            # JSON解析エラーは続行可能
             else:
                 # 接続切断
                 logger.info("タスク管理マスタとの接続が切断されました")
@@ -219,7 +226,7 @@ class TaskWorker:
         
         elif msg_type == "DISCONNECT":
             # 切断通知
-            logger.info("切断通知を受信しました")
+            logger.info("切断通知を受信しました") 
             self.running = False
         
         else:
@@ -237,7 +244,8 @@ class TaskWorker:
         }
         
         try:
-            self.socket.send(json.dumps(check_ack).encode('utf-8'))
+            message_data = json.dumps(check_ack) + '\n'
+            self.socket.send(message_data.encode('utf-8'))
             logger.debug(f"ヘルスチェック応答送信 (req_id: {req_id})")
         except Exception as e:
             logger.error(f"ヘルスチェック応答エラー: {e}")
@@ -257,7 +265,8 @@ class TaskWorker:
         }
         
         try:
-            self.socket.send(json.dumps(request_ack).encode('utf-8'))
+            message_data = json.dumps(request_ack) + '\n'
+            self.socket.send(message_data.encode('utf-8'))
             logger.info(f"タスク実行依頼承諾送信 (req_id: {req_id})")
         except Exception as e:
             logger.error(f"タスク実行依頼承諾エラー: {e}")
@@ -350,10 +359,16 @@ class TaskWorker:
             
             # 実行結果の判定
             if exit_code == 0:
-                result_type = "DONE"
-                logger.info(f"タスク完了 (req_id: {req_id})")
-                if stdout:
-                    logger.info(f"最終出力 (最初の100文字): {stdout[:100]}...")
+                # 正常終了時にusage limitをチェック
+                if self._check_usage_limit_in_output(stdout):
+                    result_type = "RATE_LIMITED"
+                    logger.warning(f"レート制限検出 (req_id: {req_id})")
+                    logger.info(f"usage limit出力: {stdout[:200]}...")
+                else:
+                    result_type = "DONE"
+                    logger.info(f"タスク完了 (req_id: {req_id})")
+                    if stdout:
+                        logger.info(f"最終出力 (最初の100文字): {stdout[:100]}...")
             else:
                 result_type = "FAILED"
                 logger.info(f"タスク失敗 (req_id: {req_id}, exit_code: {exit_code})")
@@ -381,6 +396,68 @@ class TaskWorker:
         finally:
             self.current_process = None
             logger.info(f"タスク実行スレッド終了 (req_id: {req_id})")
+    
+    def _check_usage_limit_in_output(self, output: str) -> bool:
+        """
+        claude出力からusage limitを検出
+        
+        Args:
+            output: claude実行の標準出力
+            
+        Returns:
+            bool: usage limitが検出された場合True
+        """
+        if not output:
+            return False
+        
+        # usage limitの検出パターン
+        usage_limit_patterns = [
+            "usage limit",
+            "rate limit",
+            "Rate limit",
+            "Usage limit",
+            "API rate limit",
+            "API usage limit",
+            "限度",
+            "制限"
+        ]
+        
+        # 各行をJSONとしてパースしてcontentをチェック
+        for line in output.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            try:
+                # JSON形式の行をパース
+                stream_data = json.loads(line)
+                
+                # messageオブジェクトからcontentを抽出
+                if "message" in stream_data:
+                    message = stream_data["message"]
+                    if "content" in message and isinstance(message["content"], list):
+                        # content配列の各要素をチェック
+                        for content_item in message["content"]:
+                            if isinstance(content_item, dict) and content_item.get("type") == "text":
+                                text_content = content_item.get("text", "").lower()
+                                # usage limitパターンをチェック
+                                for pattern in usage_limit_patterns:
+                                    if pattern.lower() in text_content:
+                                        logger.debug(f"usage limit検出: '{pattern}' in '{text_content[:100]}...'")
+                                        return True
+                                        
+            except json.JSONDecodeError:
+                # JSON形式でない行も直接テキストとしてチェック
+                line_lower = line.lower()
+                for pattern in usage_limit_patterns:
+                    if pattern.lower() in line_lower:
+                        logger.debug(f"usage limit検出 (非JSON): '{pattern}' in '{line[:100]}...'")
+                        return True
+            except Exception as e:
+                logger.debug(f"usage limit検出処理エラー: {e}")
+                continue
+        
+        return False
     
     def _process_claude_output_line(self, line: str):
         """
@@ -427,26 +504,36 @@ class TaskWorker:
         for message in messages:
             msg_type = message.get("type")
             
-            if msg_type in ["DONE", "FAILED"]:
-                # タスク完了/失敗報告をマスタに送信
+            if msg_type in ["DONE", "FAILED", "RATE_LIMITED"]:
+                # タスク完了/失敗/レート制限報告をマスタに送信
                 self._send_task_result(message)
     
     def _send_task_result(self, message: dict):
         """タスク結果報告をマスタに送信"""
         try:
-            # msgフィールドとreq_idを除去してマスタ用メッセージ作成
-            result_message = {
-                "type": message.get("type"),
-                "msg": message.get("msg", "")
-            }
-            
+            msg_type = message.get("type")
             req_id = message.get("req_id", "unknown")
-            logger.info(f"タスク結果報告送信準備: {message.get('type')} (req_id: {req_id})")
             
-            json_data = json.dumps(result_message)
-            self.socket.send(json_data.encode('utf-8'))
+            # メッセージタイプによってmsgフィールドを設定
+            if msg_type == "RATE_LIMITED":
+                # RATE_LIMITEDの場合はワーカーIDを送信
+                result_message = {
+                    "type": msg_type,
+                    "msg": self.worker_id
+                }
+            else:
+                # DONE/FAILEDの場合はタスクファイル名を送信
+                result_message = {
+                    "type": msg_type,
+                    "msg": message.get("msg", "")
+                }
             
-            logger.info(f"タスク結果報告送信完了: {message.get('type')} (req_id: {req_id})")
+            logger.info(f"タスク結果報告送信準備: {msg_type} (req_id: {req_id})")
+            
+            message_data = json.dumps(result_message) + '\n'
+            self.socket.send(message_data.encode('utf-8'))
+            
+            logger.info(f"タスク結果報告送信完了: {msg_type} (req_id: {req_id})")
             
         except Exception as e:
             logger.error(f"タスク結果報告エラー: {e}")

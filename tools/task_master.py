@@ -261,6 +261,10 @@ class TaskMaster:
             # タスク完了報告
             self._handle_task_completion(worker_id, msg_type, message.get("msg", ""))
         
+        elif msg_type == "RATE_LIMITED":
+            # レート制限によるタスク失敗
+            self._handle_rate_limited(worker_id, message.get("msg", ""))
+        
         elif msg_type == "CHECK_ACK":
             # ヘルスチェック応答
             req_id = message.get("req_id")
@@ -302,6 +306,39 @@ class TaskMaster:
         # ワーカー状態をidleに戻し、タスクファイル情報をクリア
         worker.status = "idle"
         worker.current_task_file = ""
+    
+    def _handle_rate_limited(self, worker_id: str, task_file: str):
+        """
+        レート制限処理 - ワーカーがレート制限に達した場合の処理
+        .tasks/working/のファイルを.tasks/pending/に移動し、ワーカーを切断する
+        
+        Args:
+            worker_id: レート制限に達したワーカーID
+            task_file: 処理中だったタスクファイル名（ワーカーIDが含まれる場合がある）
+        """
+        worker = self.workers.get(worker_id)
+        if not worker:
+            logger.warning(f"不明なワーカーからRATE_LIMITED: {worker_id}")
+            return
+        
+        logger.warning(f"ワーカー {worker_id} がレート制限に達しました")
+        
+        # .tasks/working/から.tasks/pending/にファイルを移動
+        if worker.current_task_file:
+            working_file = self.tasks_dir / "working" / worker.current_task_file
+            pending_file = self.tasks_dir / "pending" / worker.current_task_file
+            
+            try:
+                if working_file.exists():
+                    working_file.rename(pending_file)
+                    logger.info(f"レート制限によりタスクをpendingに移動: {worker.current_task_file}")
+                else:
+                    logger.warning(f"移動対象ファイルが見つかりません: {working_file}")
+            except Exception as e:
+                logger.error(f"レート制限ファイル移動エラー: {e}")
+        
+        # ワーカー切断処理を実施
+        self._handle_worker_disconnect(worker_id)
     
     def _process_internal_messages(self):
         """スレッド間メッセージの処理"""

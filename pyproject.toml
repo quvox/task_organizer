@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # プロジェクト基本情報
 name = "task-management-tools"
-version = "0.1.1"
+version = "0.1.2"
 description = "分散タスク実行システム - Claude APIを使用したタスク管理ツール群"
 readme = "README.md"
 license = {text = "MIT"}
