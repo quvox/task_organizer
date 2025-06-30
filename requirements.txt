@@ -1,0 +1,6 @@
+# Task Organizer Requirements
+# Claude Code SDK for Python
+claude-code-sdk>=0.1.0
+
+# Development dependencies (optional)
+# Install with: pip install -r requirements-dev.txt

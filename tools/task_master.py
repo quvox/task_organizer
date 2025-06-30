@@ -200,7 +200,7 @@ class TaskMaster:
                 
                 # JOIN_ACK応答
                 response = {"type": "JOIN_ACK", "msg": ""}
-                client_socket.send(json.dumps(response).encode('utf-8'))
+                client_socket.send((json.dumps(response) + '\n').encode('utf-8'))
                 
                 logger.info(f"ワーカー {worker_id} が参入しました")
             else:
@@ -218,7 +218,7 @@ class TaskMaster:
         for worker_id, worker in self.workers.items():
             try:
                 worker.socket.settimeout(0.1)
-                data = worker.socket.recv(4096).decode('utf-8', errors='replace')
+                data = worker.socket.recv(65536).decode('utf-8', errors='replace')  # バッファサイズを増やして確実に受信
                 if data:
                     # 複数のJSONメッセージが連結されている可能性を考慮
                     messages = self._parse_json_messages(data)
@@ -389,7 +389,7 @@ class TaskMaster:
                     "req_id": req_id
                 }
                 
-                worker.socket.send(json.dumps(check_message).encode('utf-8'))
+                worker.socket.send((json.dumps(check_message) + '\n').encode('utf-8'))
                 
                 # リクエスト情報追加
                 request_info = RequestInfo(
@@ -450,7 +450,7 @@ class TaskMaster:
                 }
                 
                 # JSON送信時にエスケープ問題を回避
-                json_data = json.dumps(request_message, ensure_ascii=False)
+                json_data = json.dumps(request_message, ensure_ascii=False) + '\n'
                 worker.socket.send(json_data.encode('utf-8'))
                 
                 # ワーカー状態更新
