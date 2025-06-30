@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 class TaskWorker:
     """タスクワーカーのメインクラス"""
     
-    def __init__(self, host: str = "localhost", port: int = 34567, root_dir: Optional[str] = None):
+    def __init__(self, host: str = "localhost", port: int = 34567, root_dir: Optional[str] = None, use_opus: bool = False):
         """
         タスクワーカーを初期化
         
@@ -45,16 +45,21 @@ class TaskWorker:
             host: タスク管理マスタのホスト名 (デフォルト: localhost)
             port: タスク管理マスタのポート番号 (デフォルト: 34567)
             root_dir: ルートディレクトリパス (デフォルト: カレントディレクトリ)
+            use_opus: Opus4モデルを使用するかどうか (デフォルト: False、Sonnet4を使用)
         """
         self.host = host
         self.port = port
         self.root_dir = Path(root_dir) if root_dir else Path.cwd()
+        self.use_opus = use_opus
         self.socket: Optional[socket.socket] = None
         self.worker_id: str = ""
         self.running = True
-        self.current_process: Optional[subprocess.Popen] = None
+        self.claude_process: Optional[subprocess.Popen] = None
+        self.claude_thread: Optional[threading.Thread] = None
         self.message_queue = []
         self.message_lock = threading.Lock()
+        self.claude_queue = []
+        self.claude_lock = threading.Lock()
         
         # シグナルハンドラ設定
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -64,7 +69,7 @@ class TaskWorker:
         """シグナルハンドラ - Ctrl-C等での終了処理"""
         logger.info("終了シグナルを受信しました")
         self.running = False
-        self._terminate_current_process()
+        self._terminate_claude_process()
         if self.socket:
             try:
                 # 離脱メッセージ送信
@@ -86,27 +91,30 @@ class TaskWorker:
             self.message_queue.clear()
             return messages
     
-    def _terminate_current_process(self):
-        """現在実行中のプロセスを強制停止"""
-        if self.current_process and self.current_process.poll() is None:
+    def _terminate_claude_process(self):
+        """現在実行中のclaudeプロセスを強制停止"""
+        if self.claude_process and self.claude_process.poll() is None:
             try:
-                self.current_process.terminate()
+                self.claude_process.terminate()
                 # 2秒待って強制終了
                 try:
-                    self.current_process.wait(timeout=2)
+                    self.claude_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    self.current_process.kill()
-                logger.info("実行中プロセスを停止しました")
+                    self.claude_process.kill()
+                logger.info("claudeプロセスを停止しました")
             except Exception as e:
-                logger.error(f"プロセス停止エラー: {e}")
+                logger.error(f"claudeプロセス停止エラー: {e}")
             finally:
-                self.current_process = None
+                self.claude_process = None
     
     def start(self):
         """タスクワーカーを開始"""
         logger.info(f"タスクワーカーを開始 (接続先: {self.host}:{self.port})")
         
         try:
+            # claude管理スレッドを起動
+            self._start_claude_thread()
+            
             # タスク管理マスタに接続
             self._connect_to_master()
             
@@ -272,130 +280,202 @@ class TaskWorker:
             logger.error(f"タスク実行依頼承諾エラー: {e}")
             return
         
-        # 別スレッドでタスク実行
-        logger.info(f"タスク実行スレッド開始 (req_id: {req_id})")
-        task_thread = threading.Thread(
-            target=self._execute_task,
-            args=(prompt_text, req_id),
-            daemon=True
-        )
-        task_thread.start()
-        logger.info(f"タスク実行スレッド起動完了 (req_id: {req_id})")
+        # claude管理スレッドにタスク実行依頼を送信
+        logger.info(f"タスク実行依頼をclaude管理スレッドに送信 (req_id: {req_id})")
+        
+        # タスクファイル名を生成
+        task_filename = f"task_{req_id}"
+        
+        with self.claude_lock:
+            self.claude_queue.append({
+                "type": "REQUEST",
+                "msg": prompt_text,
+                "req_id": req_id,
+                "task_filename": task_filename
+            })
     
-    def _execute_task(self, prompt_text: str, req_id: str):
-        """タスク実行スレッド"""
+    def _start_claude_thread(self):
+        """
+        claude管理スレッドを起動
+        claudeプロセスをバックグラウンドで実行し、メッセージを処理
+        """
+        self.claude_thread = threading.Thread(target=self._claude_thread_main, daemon=True)
+        self.claude_thread.start()
+        logger.info("claude管理スレッドを起動しました")
+        
+        # claudeプロセスの起動を待つ
+        time.sleep(2)
+        if not self.claude_process or self.claude_process.poll() is not None:
+            raise Exception("claudeプロセスの起動に失敗しました")
+    
+    def _claude_thread_main(self):
+        """
+        claude管理スレッドのメイン処理
+        claudeプロセスを起動し、メッセージ待ち受けループを実行
+        """
         try:
-            logger.info(f"タスク実行開始 (req_id: {req_id})")
-            logger.debug(f"プロンプトテキスト: {prompt_text[:100]}...")
+            # claudeコマンドをバックグラウンドで実行
+            cmd = ["claude", "--verbose", "--output-format", "stream-json", "--allowedTools", "WebFetch,Read,Write,Bash"]
             
-            # claudeコマンド実行
-            cmd = ["claude", "--verbose", "--output-format", "stream-json", "--allowedTools", "WebFetch,Read,Write,Bash", "-p", prompt_text]
-            logger.info(f"実行コマンド: {' '.join(cmd[:4])} [プロンプト省略]")
+            # --opusオプションが指定されていた場合、モデルをopusに設定
+            if self.use_opus:
+                cmd.extend(["--model", "opus"])
+                logger.info("Opus4モデルを使用します")
+            else:
+                logger.info("Sonnet4モデルを使用します（デフォルト）")
+            
+            logger.info(f"claudeプロセスを起動: {' '.join(cmd)}")
             logger.info(f"実行ディレクトリ: {self.root_dir}")
             
-            self.current_process = subprocess.Popen(
+            self.claude_process = subprocess.Popen(
                 cmd,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1,  # 行バッファリング
+                bufsize=1,
                 universal_newlines=True,
-                cwd=str(self.root_dir)  # ルートディレクトリで実行
+                cwd=str(self.root_dir)
             )
-            logger.info(f"claudeプロセス開始 (PID: {self.current_process.pid})")
+            logger.info(f"claudeプロセス開始 (PID: {self.claude_process.pid})")
             
-            # リアルタイムで出力を監視
-            logger.info(f"claudeプロセス出力監視開始 (req_id: {req_id})")
+            # 現在実行中のタスク情報
+            current_task = None
             
-            # 出力監視スレッドを開始
-            output_lines = []
-            error_lines = []
-            
-            def read_stdout():
-                try:
-                    for line in iter(self.current_process.stdout.readline, ''):
-                        if line:
-                            line = line.rstrip()
-                            output_lines.append(line)
-                            # ストリーム出力のJSONからcontent部分のみを抽出して表示
-                            self._process_claude_output_line(line)
-                        if self.current_process.poll() is not None:
-                            break
-                except Exception as e:
-                    logger.error(f"標準出力読み取りエラー: {e}")
-            
-            def read_stderr():
-                try:
-                    for line in iter(self.current_process.stderr.readline, ''):
-                        if line:
-                            line = line.rstrip()
-                            error_lines.append(line)
-                            logger.warning(f"[CLAUDE-ERR] {line}")
-                        if self.current_process.poll() is not None:
-                            break
-                except Exception as e:
-                    logger.error(f"標準エラー読み取りエラー: {e}")
-            
-            # 出力監視スレッド開始
-            stdout_thread = threading.Thread(target=read_stdout, daemon=True)
-            stderr_thread = threading.Thread(target=read_stderr, daemon=True)
-            stdout_thread.start()
-            stderr_thread.start()
-            
-            # プロセス完了を待機
-            logger.info(f"claudeプロセス完了待機中 (req_id: {req_id})")
-            exit_code = self.current_process.wait()
-            
-            # 出力監視スレッドの完了を待つ
-            stdout_thread.join(timeout=2)
-            stderr_thread.join(timeout=2)
-            
-            logger.info(f"claudeプロセス完了 (req_id: {req_id}, exit_code: {exit_code})")
-            logger.info(f"標準出力行数: {len(output_lines)}, 標準エラー行数: {len(error_lines)}")
-            
-            # 出力とエラーを結合
-            stdout = '\n'.join(output_lines)
-            stderr = '\n'.join(error_lines)
-            
-            # 実行結果の判定
-            if exit_code == 0:
-                # 正常終了時にusage limitをチェック
-                if self._check_usage_limit_in_output(stdout):
-                    result_type = "RATE_LIMITED"
-                    logger.warning(f"レート制限検出 (req_id: {req_id})")
-                    logger.info(f"usage limit出力: {stdout[:200]}...")
-                else:
-                    result_type = "DONE"
-                    logger.info(f"タスク完了 (req_id: {req_id})")
-                    if stdout:
-                        logger.info(f"最終出力 (最初の100文字): {stdout[:100]}...")
-            else:
-                result_type = "FAILED"
-                logger.info(f"タスク失敗 (req_id: {req_id}, exit_code: {exit_code})")
-                if stderr:
-                    logger.error(f"最終エラー出力: {stderr}")
-                if stdout:
-                    logger.warning(f"部分的出力: {stdout[:100]}...")
-            
-            # 完了通知をキューに追加
-            logger.info(f"完了通知をキューに追加 (type: {result_type}, req_id: {req_id})")
-            self._add_message({
-                "type": result_type,
-                "msg": f"task_{req_id}",  # タスクファイル名として使用
-                "req_id": req_id
-            })
+            # メッセージ待ち受けループ
+            while self.running:
+                # メッセージキューをチェック
+                with self.claude_lock:
+                    if self.claude_queue:
+                        message = self.claude_queue.pop(0)
+                    else:
+                        message = None
+                
+                if message:
+                    msg_type = message.get("type")
+                    
+                    if msg_type == "REQUEST":
+                        # タスク実行依頼
+                        current_task = message
+                        prompt_text = message.get("msg", "")
+                        req_id = message.get("req_id")
+                        
+                        logger.info(f"claudeにタスク実行依頼 (req_id: {req_id})")
+                        
+                        try:
+                            # プロンプトをclaudeの標準入力に送信
+                            self.claude_process.stdin.write(prompt_text + "\n")
+                            self.claude_process.stdin.flush()
+                            logger.info(f"プロンプト送信完了 (req_id: {req_id})")
+                        except Exception as e:
+                            logger.error(f"プロンプト送信エラー: {e}")
+                            self._add_message({
+                                "type": "FAILED",
+                                "msg": current_task.get("task_filename", ""),
+                                "req_id": req_id
+                            })
+                            current_task = None
+                    
+                    elif msg_type == "EXIT":
+                        # 終了メッセージ
+                        logger.info("claude管理スレッド終了メッセージを受信")
+                        break
+                
+                # claudeの出力をチェック
+                if current_task and self.claude_process:
+                    # 標準出力を非ブロッキングで読み取り
+                    try:
+                        # selectを使用して非ブロッキング読み取り
+                        import select
+                        readable, _, _ = select.select([self.claude_process.stdout], [], [], 0.1)
+                        
+                        if readable:
+                            line = self.claude_process.stdout.readline()
+                            if line:
+                                line = line.rstrip()
+                                # ストリーム出力のJSONからcontent部分のみを抽出して表示
+                                self._process_claude_output_line(line)
+                                
+                                # タスク完了の判定
+                                if self._is_task_complete(line):
+                                    logger.info(f"タスク完了を検出 (req_id: {current_task['req_id']})")
+                                    
+                                    # usage limitチェック
+                                    if "usage limit" in line.lower():
+                                        result_type = "USAGE_LIMITED"
+                                        logger.warning(f"使用制限検出")
+                                    else:
+                                        result_type = "DONE"
+                                    
+                                    # 完了通知を送信
+                                    self._add_message({
+                                        "type": result_type,
+                                        "msg": current_task.get("task_filename", ""),
+                                        "req_id": current_task['req_id']
+                                    })
+                                    
+                                    # /clearコマンドを送信
+                                    try:
+                                        self.claude_process.stdin.write("/clear\n")
+                                        self.claude_process.stdin.flush()
+                                        logger.info("コンテキストをクリアしました")
+                                    except Exception as e:
+                                        logger.error(f"/clearコマンドエラー: {e}")
+                                    
+                                    current_task = None
+                    
+                    except Exception as e:
+                        if "Resource temporarily unavailable" not in str(e):
+                            logger.error(f"claude出力読み取りエラー: {e}")
+                
+                # claudeプロセスの状態をチェック
+                if self.claude_process and self.claude_process.poll() is not None:
+                    exit_code = self.claude_process.poll()
+                    logger.error(f"claudeプロセスが異常終了 (exit_code: {exit_code})")
+                    
+                    # 現在のタスクがあれば失敗通知
+                    if current_task:
+                        self._add_message({
+                            "type": "FAILED",
+                            "msg": current_task.get("task_filename", ""),
+                            "req_id": current_task['req_id']
+                        })
+                    break
+                
+                # 少し待機
+                time.sleep(0.1)
             
         except Exception as e:
-            logger.error(f"タスク実行エラー (req_id: {req_id}): {e}")
-            # 失敗通知をキューに追加
-            self._add_message({
-                "type": "FAILED",
-                "msg": f"task_{req_id}",
-                "req_id": req_id
-            })
+            logger.error(f"claude管理スレッドエラー: {e}")
         finally:
-            self.current_process = None
-            logger.info(f"タスク実行スレッド終了 (req_id: {req_id})")
+            # claudeプロセスを終了
+            self._terminate_claude_process()
+            logger.info("claude管理スレッドを終了しました")
+    
+    def _is_task_complete(self, line: str) -> bool:
+        """
+        claudeの出力からタスク完了を判定
+        
+        Args:
+            line: claudeの出力行
+            
+        Returns:
+            bool: タスクが完了した場合True
+        """
+        try:
+            # JSON形式の行をパース
+            stream_data = json.loads(line)
+            
+            # stop_reasonが含まれている場合は完了
+            if "message" in stream_data:
+                message = stream_data["message"]
+                if message.get("stop_reason") is not None:
+                    logger.debug(f"タスク完了検出: stop_reason={message['stop_reason']}")
+                    return True
+        except:
+            pass
+        
+        return False
     
     def _check_usage_limit_in_output(self, output: str) -> bool:
         """
@@ -504,8 +584,8 @@ class TaskWorker:
         for message in messages:
             msg_type = message.get("type")
             
-            if msg_type in ["DONE", "FAILED", "RATE_LIMITED"]:
-                # タスク完了/失敗/レート制限報告をマスタに送信
+            if msg_type in ["DONE", "FAILED", "USAGE_LIMITED"]:
+                # タスク完了/失敗/使用制限報告をマスタに送信
                 self._send_task_result(message)
     
     def _send_task_result(self, message: dict):
@@ -515,8 +595,8 @@ class TaskWorker:
             req_id = message.get("req_id", "unknown")
             
             # メッセージタイプによってmsgフィールドを設定
-            if msg_type == "RATE_LIMITED":
-                # RATE_LIMITEDの場合はワーカーIDを送信
+            if msg_type == "USAGE_LIMITED":
+                # USAGE_LIMITEDの場合はワーカーIDを送信
                 result_message = {
                     "type": msg_type,
                     "msg": self.worker_id
@@ -542,8 +622,18 @@ class TaskWorker:
         """クリーンアップ処理"""
         logger.info("クリーンアップ処理を開始")
         
-        # 実行中プロセスを停止
-        self._terminate_current_process()
+        # claude管理スレッドに終了メッセージを送信
+        if self.claude_thread and self.claude_thread.is_alive():
+            with self.claude_lock:
+                self.claude_queue.append({"type": "EXIT", "msg": ""})
+            
+            # スレッドの終了を待つ（最大5秒）
+            self.claude_thread.join(timeout=5)
+            if self.claude_thread.is_alive():
+                logger.warning("claude管理スレッドの終了がタイムアウトしました")
+        
+        # claudeプロセスを停止
+        self._terminate_claude_process()
         
         # ソケット切断
         if self.socket:
@@ -576,11 +666,16 @@ def main():
         type=str,
         help='ルートディレクトリパス (デフォルト: カレントディレクトリ)'
     )
+    parser.add_argument(
+        '--opus',
+        action='store_true',
+        help='Opus4モデルを使用する (デフォルト: Sonnet4)'
+    )
     
     args = parser.parse_args()
     
     try:
-        worker = TaskWorker(host=args.host, port=args.port, root_dir=args.root_dir)
+        worker = TaskWorker(host=args.host, port=args.port, root_dir=args.root_dir, use_opus=args.opus)
         worker.start()
     except KeyboardInterrupt:
         logger.info("Ctrl-Cで終了")
