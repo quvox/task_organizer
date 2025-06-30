@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 # プロジェクト基本情報
-name = "task-management-tools"
-version = "0.1.1"
-description = "分散タスク実行システム - Claude APIを使用したタスク管理ツール群"
+name = "task-organizer"
+version = "0.3.0"
+description = "分散タスク実行システム - Claude Code SDKを使用したAIエージェント管理ツール群"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -17,36 +17,31 @@ maintainers = [
     {name = "Claude Code", email = "noreply@anthropic.com"}
 ]
 
-# Python要件
-requires-python = ">=3.8"
+# Python要件 - Claude Code SDK PythonがPython 3.10+を要求
+requires-python = ">=3.11"
 
 # 依存関係
 dependencies = [
-    # 現時点では標準ライブラリのみ使用
-    # 必要に応じて以下を追加:
-    # "requests>=2.25.0",
-    # "aiohttp>=3.7.0",
+    "claude-code-sdk>=0.1.0",  # Claude Code SDK Python
 ]
 
 # プロジェクト分類
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Build Tools",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
     "Topic :: System :: Distributed Computing",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 # キーワード
-keywords = ["task", "management", "distributed", "claude", "api", "automation"]
+keywords = ["task", "management", "distributed", "claude", "sdk", "ai-agent", "automation", "anthropic"]
 
 # オプション依存関係
 [project.optional-dependencies]
@@ -72,10 +67,10 @@ lint = [
 
 # プロジェクトURL
 [project.urls]
-Homepage = "https://github.com/anthropics/claude-code"
-Documentation = "https://docs.anthropic.com/en/docs/claude-code"
-Repository = "https://github.com/anthropics/claude-code"
-"Bug Reports" = "https://github.com/anthropics/claude-code/issues"
+Homepage = "https://github.com/example/task-organizer"
+Documentation = "https://github.com/example/task-organizer/blob/main/README.md"
+Repository = "https://github.com/example/task-organizer"
+"Bug Reports" = "https://github.com/example/task-organizer/issues"
 
 # コンソールスクリプト - エントリポイント
 [project.scripts]
@@ -96,7 +91,7 @@ tools = ["*.md", "*.txt", "*.json"]
 # Black設定（コードフォーマッター）
 [tool.black]
 line-length = 88
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = ['py311', 'py312', 'py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -124,7 +119,7 @@ known_first_party = ["tools"]
 
 # mypy設定（型チェック）
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

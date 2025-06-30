@@ -200,7 +200,7 @@ class TaskMaster:
                 
                 # JOIN_ACK応答
                 response = {"type": "JOIN_ACK", "msg": ""}
-                client_socket.send(json.dumps(response).encode('utf-8'))
+                client_socket.send((json.dumps(response) + '\n').encode('utf-8'))
                 
                 logger.info(f"ワーカー {worker_id} が参入しました")
             else:
@@ -218,7 +218,7 @@ class TaskMaster:
         for worker_id, worker in self.workers.items():
             try:
                 worker.socket.settimeout(0.1)
-                data = worker.socket.recv(4096).decode('utf-8', errors='replace')
+                data = worker.socket.recv(65536).decode('utf-8', errors='replace')  # バッファサイズを増やして確実に受信
                 if data:
                     # 複数のJSONメッセージが連結されている可能性を考慮
                     messages = self._parse_json_messages(data)
@@ -261,6 +261,10 @@ class TaskMaster:
             # タスク完了報告
             self._handle_task_completion(worker_id, msg_type, message.get("msg", ""))
         
+        elif msg_type == "USAGE_LIMITED":
+            # 使用制限によるタスク失敗
+            self._handle_usage_limited(worker_id, message.get("msg", ""))
+        
         elif msg_type == "CHECK_ACK":
             # ヘルスチェック応答
             req_id = message.get("req_id")
@@ -302,6 +306,39 @@ class TaskMaster:
         # ワーカー状態をidleに戻し、タスクファイル情報をクリア
         worker.status = "idle"
         worker.current_task_file = ""
+    
+    def _handle_usage_limited(self, worker_id: str, task_file: str):
+        """
+        使用制限処理 - ワーカーが使用制限に達した場合の処理
+        .tasks/working/のファイルを.tasks/pending/に移動し、ワーカーを切断する
+        
+        Args:
+            worker_id: 使用制限に達したワーカーID
+            task_file: 処理中だったタスクファイル名（ワーカーIDが含まれる場合がある）
+        """
+        worker = self.workers.get(worker_id)
+        if not worker:
+            logger.warning(f"不明なワーカーからUSAGE_LIMITED: {worker_id}")
+            return
+        
+        logger.warning(f"ワーカー {worker_id} が使用制限に達しました")
+        
+        # .tasks/working/から.tasks/pending/にファイルを移動
+        if worker.current_task_file:
+            working_file = self.tasks_dir / "working" / worker.current_task_file
+            pending_file = self.tasks_dir / "pending" / worker.current_task_file
+            
+            try:
+                if working_file.exists():
+                    working_file.rename(pending_file)
+                    logger.info(f"使用制限によりタスクをpendingに移動: {worker.current_task_file}")
+                else:
+                    logger.warning(f"移動対象ファイルが見つかりません: {working_file}")
+            except Exception as e:
+                logger.error(f"使用制限ファイル移動エラー: {e}")
+        
+        # ワーカー切断処理を実施
+        self._handle_worker_disconnect(worker_id)
     
     def _process_internal_messages(self):
         """スレッド間メッセージの処理"""
@@ -352,7 +389,7 @@ class TaskMaster:
                     "req_id": req_id
                 }
                 
-                worker.socket.send(json.dumps(check_message).encode('utf-8'))
+                worker.socket.send((json.dumps(check_message) + '\n').encode('utf-8'))
                 
                 # リクエスト情報追加
                 request_info = RequestInfo(
@@ -413,7 +450,7 @@ class TaskMaster:
                 }
                 
                 # JSON送信時にエスケープ問題を回避
-                json_data = json.dumps(request_message, ensure_ascii=False)
+                json_data = json.dumps(request_message, ensure_ascii=False) + '\n'
                 worker.socket.send(json_data.encode('utf-8'))
                 
                 # ワーカー状態更新
