@@ -1,0 +1,5 @@
+../src/cmd/main.go
+../src/internal/worker/worker.go
+../src/internal/master/master.go
+../src/internal/create/create.go
+../src/internal/common/message.go
