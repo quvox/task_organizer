@@ -9,60 +9,63 @@ import (
 	"github.com/quvox/task_organizer/internal/worker"
 )
 
-/*
-@obj: タスク管理システムのメインエントリーポイント
-@ref: IPS3MKEQ-000001-000000, IPS3MKEQ-000002-000000, IPS3MKEQ-000000-000000
-*/
+// main はTask Organizerのエントリーポイント
+// @obj: コマンドライン引数に基づいて適切なサブコマンドを実行する
+// @ref: SCIK9X27-000008-000000, SCIK9X27-000008-000001 - Task Organizerツールの主要目的
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
 	}
 
-	command := os.Args[1]
-
-	switch command {
+	// サブコマンドの処理
+	// @obj: 3つの主要機能（タスク生成、タスク管理、タスクワーカー）を振り分ける
+	// @ref: SCIK9X27-000008-000004 - 3つの主要機能の実装
+	switch os.Args[1] {
 	case "create":
-		/*
-		@obj: タスク生成ツールを起動する
-		@ref: IPS3MKEQ-000001-000000 "タスク生成ツールは、`taskorganizer create`で起動する。"
-		*/
+		// タスク生成ツールの実行
+		// @obj: ビジネスプロンプトとターゲットリストからタスクを生成
+		// @ref: SCIK9X27-000002-000000 - タスク生成ツールの起動コマンド
 		if err := create.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "master":
-		/*
-		@obj: タスク管理マスタを起動する
-		@ref: IPS3MKEQ-000002-000000 "タスク管理マスタは、`taskorganizer master`で起動する。"
-		*/
+		// タスク管理マスターの実行
+		// @obj: タスクワーカーとの接続を管理し、タスクを分配
+		// @ref: SCIK9X27-000003-000000 - タスク管理マスターの起動コマンド
 		if err := master.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "worker":
-		/*
-		@obj: タスクワーカーを起動する
-		@ref: IPS3MKEQ-000000-000000 "タスクワーカーは、`taskorganizer worker`で起動する。"
-		*/
+		// タスクワーカーの実行
+		// @obj: タスク管理マスターから指示を受けてAIエージェントでタスクを実行
+		// @ref: SCIK9X27-000001-000000 - タスクワーカーの起動コマンド
 		if err := worker.Run(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
 	default:
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		printUsage()
 		os.Exit(1)
 	}
 }
 
+// printUsage はツールの使用方法を表示
+// @obj: ユーザーに使用可能なコマンドを案内
+// @ref: SCIK9X27-000008-000004 - 3つの主要機能の説明
 func printUsage() {
-	fmt.Println("Usage:")
-	fmt.Println("  taskorganizer create <business_prompt_file> <target_list_file> [options]")
-	fmt.Println("  taskorganizer master [port] [options]")
-	fmt.Println("  taskorganizer worker [hostname] [port] [options]")
+	fmt.Println("Usage: taskorganizer <command> [arguments]")
 	fmt.Println()
-	fmt.Println("Options:")
-	fmt.Println("  --root-dir <path>  Root directory path")
-	fmt.Println("  --clear           Clear existing .tasks directory (create only)")
-	fmt.Println("  --opus            Use Opus model (worker only)")
+	fmt.Println("Commands:")
+	fmt.Println("  create  - Create tasks from business prompt and target list")
+	fmt.Println("  master  - Start task management master server")
+	fmt.Println("  worker  - Start task worker client")
+	fmt.Println()
+	fmt.Println("Use 'taskorganizer <command> -h' for more information about a command.")
 }

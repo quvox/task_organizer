@@ -102,7 +102,6 @@ build-windows:
 	@echo "Building for Windows..."
 	cd $(SRC_DIR) && GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) -o ../$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd
 
-
 # ヘルプ
 .PHONY: help
 help:

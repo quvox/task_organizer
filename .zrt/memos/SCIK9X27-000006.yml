@@ -1,0 +1,76 @@
+info:
+    id: SCIK9X27-000006
+    path: docs/メッセージフォーマット.md
+sentences:
+    - id: SCIK9X27-000006-000000
+      hash: e3841f358dbc31a54ed9d8686b74bf9c70407599b1660e22bda059fd4054b7e1
+      sentence: タスク管理マスタとタスクワーカー間、および同一ツール内のスレッドと待ち受けループ間でやり取りするメッセージは、以下に示すように、key-valueペアをJSON形式にしたものとする。
+    - id: SCIK9X27-000006-000001
+      hash: 7e8954a5bd6c3b5f13579a524e8441631c88933214f89ceaadf3f9211546c617
+      sentence: '{ "type": "<メッセージタイプ>", "msg": "<メッセージ内容>" }'
+    - id: SCIK9X27-000006-000002
+      hash: 811e824e6fdf4afff745fc16cf95955aecc54e52641b8867987a4c5522d3daaf
+      sentence: タスク実行依頼やヘルスチェックなど、応答が必要なメッセージでは以下のフォーマットを使用する：
+    - id: SCIK9X27-000006-000003
+      hash: c8ef985a3fd73e71af2bacdf63318ebbc06557430af60a852851d053f3d84508
+      sentence: '{ "type": "<メッセージタイプ>", "msg": "<メッセージ内容>", "req_id": "<リクエストID>" }'
+    - id: SCIK9X27-000006-000004
+      hash: 322566d766ca62958f040ab480c42b039dad9006fb3bfd55cb42f0add7cdebec
+      sentence: メッセージタイプには以下のものがある。
+    - id: SCIK9X27-000006-000005
+      hash: 4a85488c4bb2524e571626baf33035838d0892537ee010d2f3032e6a0e14d50a
+      sentence: 'JOIN: 参入'
+    - id: SCIK9X27-000006-000006
+      hash: 577554fe757603c1480ab6186ac1a21096b641894074bf345a4e6f4dcb0e1f7c
+      sentence: 'JOIN_ACK: 参入応答'
+    - id: SCIK9X27-000006-000007
+      hash: b1d23e61234ca92a37d0ae1f20c7b58a8a07fd51ee3e1b2d4981d84a421c6479
+      sentence: 'REQUEST: タスク実行依頼'
+    - id: SCIK9X27-000006-000008
+      hash: 65dd0c0c2b25ad83d85ba4ad9ddaa53ecc9b00ef8f9620c9d5ec5597e1caec3b
+      sentence: 'REQUEST_ACK: タスク実行依頼承諾'
+    - id: SCIK9X27-000006-000009
+      hash: ff662b5628a88008973586b75b1e7a0679518122c525d7a15169c168ab36dff8
+      sentence: 'DONE: タスク完了報告'
+    - id: SCIK9X27-000006-00000A
+      hash: 79a0352ec8c50cd4e76c6b081562f3047ce3aac9409e6147fbf86caacf9da719
+      sentence: 'FAILED: タスク失敗報告'
+    - id: SCIK9X27-000006-00000B
+      hash: 8dd5d0c9957ea628e3e7c0b223f9fc18b677e7404657b19de75e0d56bc73bfc3
+      sentence: 'USAGE_LIMITED: タスク失敗報告（レートリミットに引っかかった）'
+    - id: SCIK9X27-000006-00000C
+      hash: 7f3004aa404608beaaf03c70a5b18aa9114969fb39dc246ea6aed014751c27f4
+      sentence: 'CHECK: ヘルスチェック'
+    - id: SCIK9X27-000006-00000D
+      hash: 1b864c4e8751db96becf34894a46ea79f298b19a72c7d7bc79c4ec7048e11ab9
+      sentence: 'CHECK_ACK: ヘルスチェック応答'
+    - id: SCIK9X27-000006-00000E
+      hash: 3fe56997ba97e92d59c219b8b2843a60a8b3646e2dd3e3189c62ff1da49d3120
+      sentence: 'LEAVE: 離脱'
+    - id: SCIK9X27-000006-00000F
+      hash: d1286fe964ea15f50e29803bebadcb7e7f82a3763a02dca621c4475c331db271
+      sentence: 'COMPLETED: 全タスク完了'
+    - id: SCIK9X27-000006-000016
+      hash: a063403333120152a2aa99f4477eec1e7bf38dbf3249aefd29f7c0cd26dd08e0
+      sentence: 'DISCONN: 切断通知'
+    - id: SCIK9X27-000006-000010
+      hash: 6b8268607116a7d556ca0efceb8786df39af1e4b9eb655b33bca636c23ae8b23
+      sentence: 'TIMER: タイマーイベント'
+    - id: SCIK9X27-000006-000011
+      hash: faa3e6b101cb96001ddf2f30827a8dc499131a4b7508113b8268b30fb877d9aa
+      sentence: 'TIMEOUT_CHECK: ワーカー応答タイムアウトのチェック'
+    - id: SCIK9X27-000006-000012
+      hash: e557daa95c0331055b43d61e44b1e807fd07a8f248dde8f621337caab0d36baf
+      sentence: 'EXIT: プログラム停止（ループ終了）'
+    - id: SCIK9X27-000006-000013
+      hash: d39bba398c49e64f3133876889203d9c5ecf3ad0445a119106654af7527f8328
+      sentence: タスク管理マスタとタスクワーカー間のTCP通信では、各JSONメッセージの末尾に改行文字（\n）を付与して送信する。これにより、複数のメッセージが連結された場合でも正しく分離できる。
+    - id: SCIK9X27-000006-000014
+      hash: de5f86723042e490d21bc52ff390b96e19d008c9728ba711249dc14617c561f4
+      sentence: 例：
+    - id: SCIK9X27-000006-000015
+      hash: 2e9cce4f9a20bb6e4c470978da89a11f12d31fa78af09857938ceb34f62ea142
+      sentence: |-
+        ```
+        {"type": "CHECK", "msg": "", "req_id": "check_1234"}\n
+        ```

@@ -2,172 +2,168 @@ package create
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
-/*
-@obj: タスク生成ツールのメイン処理
-@ref: IPS3MKEQ-000001-000000 "タスク生成ツールは、`taskorganizer create`で起動する。"
-*/
-func Run(args []string) error {
-	/*
-	@obj: コマンドライン引数を解析する
-	@ref: IPS3MKEQ-000001-000001 "タスク生成ツールには、2つのテキストファイルパスを引数で与える。一つは業務プロンプトテキスト、もう一つはターゲットリストである。"
-	@ref: IPS3MKEQ-000001-000002 "タスク生成ツールには、さらにオプショナル引数でルートディレクトリパスを指定する。"
-	@ref: IPS3MKEQ-000001-000003 'オプショナルの引数"--clear"を指定した場合、ルートディレクトリにすでに存在している.tasks/ディレクトリを起動時に全て削除する。'
-	*/
-	fs := flag.NewFlagSet("create", flag.ExitOnError)
-	rootDir := fs.String("root-dir", ".", "Root directory path")
-	clear := fs.Bool("clear", false, "Clear existing .tasks directory on startup")
+// TaskCreator はタスク生成機能を提供する構造体
+// @obj タスク生成ツールの主要な構造体
+// @ref SCIK9X27-000002-000000
+type TaskCreator struct {
+	businessPromptPath string
+	targetListPath     string
+	rootDir            string
+	clearTasks         bool
+	logger             *logrus.Logger
+}
 
-	if err := fs.Parse(args); err != nil {
+// NewTaskCreator は新しいTaskCreatorインスタンスを作成する
+// @obj タスク生成ツールのインスタンス生成
+// @ref SCIK9X27-000002-000001, SCIK9X27-000002-000002, SCIK9X27-000002-000003
+func NewTaskCreator(businessPromptPath, targetListPath, rootDir string, clearTasks bool, logger *logrus.Logger) *TaskCreator {
+	return &TaskCreator{
+		businessPromptPath: businessPromptPath,
+		targetListPath:     targetListPath,
+		rootDir:            rootDir,
+		clearTasks:         clearTasks,
+		logger:             logger,
+	}
+}
+
+// Run はタスク生成処理を実行する
+// @obj タスク生成の主処理
+// @ref SCIK9X27-000002-000003, SCIK9X27-000002-000006, SCIK9X27-000002-000007
+func (tc *TaskCreator) Run() error {
+	tc.logger.Info("Starting task creation")
+
+	// @obj .tasks/ディレクトリのクリア処理
+	// @ref SCIK9X27-000002-000003
+	if tc.clearTasks {
+		tasksDir := filepath.Join(tc.rootDir, ".tasks")
+		if _, err := os.Stat(tasksDir); err == nil {
+			tc.logger.Info("Clearing existing .tasks directory")
+			if err := os.RemoveAll(tasksDir); err != nil {
+				return fmt.Errorf("failed to remove .tasks directory: %w", err)
+			}
+		}
+	}
+
+	// @obj .tasks/ディレクトリ構造の作成
+	// @ref SCIK9X27-000002-000006
+	if err := tc.createTaskDirectories(); err != nil {
 		return err
 	}
 
-	if fs.NArg() < 2 {
-		return fmt.Errorf("usage: taskorganizer create <business_prompt_file> <target_list_file> [options]")
-	}
-
-	businessPromptFile := fs.Arg(0)
-	targetListFile := fs.Arg(1)
-
-	/*
-	@obj: ルートディレクトリを絶対パスに変換する
-	@ref: IPS3MKEQ-000001-000002 "なお、デフォルトのルートディレクトリはスクリプトを実行した時のカレントディレクトリとする。"
-	*/
-	absRootDir, err := filepath.Abs(*rootDir)
+	// @obj 業務プロンプトの読み込み
+	// @ref SCIK9X27-000002-000004
+	businessPrompt, err := tc.readBusinessPrompt()
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path of root directory: %w", err)
+		return err
 	}
 
-	/*
-	@obj: --clearオプションが指定された場合、既存の.tasksディレクトリを削除する
-	@ref: IPS3MKEQ-000001-000003 'オプショナルの引数"--clear"を指定した場合、ルートディレクトリにすでに存在している.tasks/ディレクトリを起動時に全て削除する。'
-	*/
-	tasksDir := filepath.Join(absRootDir, ".tasks")
-	if *clear && exists(tasksDir) {
-		if err := os.RemoveAll(tasksDir); err != nil {
-			return fmt.Errorf("failed to remove existing .tasks directory: %w", err)
-		}
+	// @obj ターゲットリストを読み込んでタスクプロンプトを生成
+	// @ref SCIK9X27-000002-000005, SCIK9X27-000002-000007
+	if err := tc.createTasks(businessPrompt); err != nil {
+		return err
 	}
 
-	/*
-	@obj: .tasksディレクトリとサブディレクトリを作成する
-	@ref: IPS3MKEQ-000001-000006 "タスク生成ツールを起動すると、ルートディレクトリの下に、.tasks/ディレクトリを生成し、さらにその下に、pending、working、done、failedというサブディレクトリを作る。"
-	*/
-	subdirs := []string{"pending", "working", "done", "failed"}
-	for _, subdir := range subdirs {
-		dir := filepath.Join(tasksDir, subdir)
+	tc.logger.Info("Task creation completed")
+	return nil
+}
+
+// createTaskDirectories はタスク管理用ディレクトリを作成する
+// @obj .tasks/以下のディレクトリ構造を作成
+// @ref SCIK9X27-000002-000006
+func (tc *TaskCreator) createTaskDirectories() error {
+	dirs := []string{
+		filepath.Join(tc.rootDir, ".tasks"),
+		filepath.Join(tc.rootDir, ".tasks", "pending"),
+		filepath.Join(tc.rootDir, ".tasks", "working"),
+		filepath.Join(tc.rootDir, ".tasks", "done"),
+		filepath.Join(tc.rootDir, ".tasks", "failed"),
+	}
+
+	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
+		tc.logger.Debugf("Created directory: %s", dir)
 	}
 
-	/*
-	@obj: 業務プロンプトを読み込む
-	@ref: IPS3MKEQ-000001-000004 "業務プロンプトには、実行させたい業務がテキストで記述されている。"
-	*/
-	businessPrompt, err := readFile(businessPromptFile)
+	return nil
+}
+
+// readBusinessPrompt は業務プロンプトファイルを読み込む
+// @obj 業務プロンプトテキストの読み込み
+// @ref SCIK9X27-000002-000004
+func (tc *TaskCreator) readBusinessPrompt() (string, error) {
+	file, err := os.Open(tc.businessPromptPath)
 	if err != nil {
-		return fmt.Errorf("failed to read business prompt file: %w", err)
+		return "", fmt.Errorf("failed to open business prompt file: %w", err)
 	}
+	defer file.Close()
 
-	/*
-	@obj: ターゲットリストを読み込む
-	@ref: IPS3MKEQ-000001-000005 "ターゲットリストには、業務対象のリストが改行区切りのテキストで記述されている。"
-	*/
-	targets, err := readLines(targetListFile)
+	content, err := io.ReadAll(file)
 	if err != nil {
-		return fmt.Errorf("failed to read target list file: %w", err)
+		return "", fmt.Errorf("failed to read business prompt file: %w", err)
 	}
 
-	/*
-	@obj: 各ターゲットに対してタスクプロンプトを生成する
-	@ref: IPS3MKEQ-000001-000007 "タスク生成ツールは、ターゲットリスト1行1行に対して、タスクプロンプトを生成し、.tasks/pending/の下にテキストファイルとして出力する。"
-	*/
-	pendingDir := filepath.Join(tasksDir, "pending")
-	for i, target := range targets {
-		/*
-		@obj: タスクプロンプトのテキストを生成する
-		@ref: IPS3MKEQ-000001-000008 "タスクプロンプトには、以下のテキストを書き出す。＜業務プロンプトの内容＞の部分には、ツールに業務プロンプトテキストを、＜ターゲットリストのエントリ＞の部分には、リストから読み取った1行を書く。"
-		@ref: IPS3MKEQ-000001-000009 "あなたは、有能なビジネスマンです。上司から、「＜業務プロンプトの内容＞」というミッションを与えられました。..."
-		*/
+	prompt := strings.TrimSpace(string(content))
+	tc.logger.Debugf("Business prompt loaded: %d characters", len(prompt))
+	return prompt, nil
+}
+
+// createTasks はターゲットリストからタスクプロンプトファイルを生成する
+// @obj ターゲットリストの各行に対してタスクプロンプトを生成
+// @ref SCIK9X27-000002-000007, SCIK9X27-000002-000008, SCIK9X27-000002-000009
+func (tc *TaskCreator) createTasks(businessPrompt string) error {
+	file, err := os.Open(tc.targetListPath)
+	if err != nil {
+		return fmt.Errorf("failed to open target list file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	taskCount := 0
+
+	for scanner.Scan() {
+		target := strings.TrimSpace(scanner.Text())
+		if target == "" {
+			continue
+		}
+
+		// @obj タスクプロンプトの生成
+		// @ref SCIK9X27-000002-000008, SCIK9X27-000002-000009
 		taskPrompt := fmt.Sprintf(
-			"あなたは、有能なビジネスマンです。上司から、「%s」というミッションを与えられました。一緒に与えられたリストを複数のビジネスマンが分担して取り組みます。あなたが割り当てられたのは、%sです。上司からの指示に従ってミッションを実行してください。",
+			"あなたは、有能なビジネスマンです。上司から、「%s」というミッションを与えられました。"+
+				"一緒に与えられたリストを複数のビジネスマンが分担して取り組みます。"+
+				"あなたが割り当てられたのは、%sです。上司からの指示に従ってミッションを実行してください。",
 			businessPrompt,
 			target,
 		)
 
-		/*
-		@obj: タスクプロンプトをファイルに書き出す
-		@ref: IPS3MKEQ-000001-000007 ".tasks/pending/の下にテキストファイルとして出力する。"
-		*/
-		filename := fmt.Sprintf("task_%05d.txt", i+1)
-		filepath := filepath.Join(pendingDir, filename)
-		if err := writeFile(filepath, taskPrompt); err != nil {
-			return fmt.Errorf("failed to write task file %s: %w", filename, err)
+		// @obj タスクプロンプトファイルの書き出し
+		// @ref SCIK9X27-000002-000007
+		taskFileName := fmt.Sprintf("task_%06d.txt", taskCount)
+		taskFilePath := filepath.Join(tc.rootDir, ".tasks", "pending", taskFileName)
+
+		if err := os.WriteFile(taskFilePath, []byte(taskPrompt), 0644); err != nil {
+			return fmt.Errorf("failed to write task file %s: %w", taskFileName, err)
 		}
+
+		tc.logger.Infof("Created task file: %s (target: %s)", taskFileName, target)
+		taskCount++
 	}
 
-	fmt.Printf("Successfully created %d task files in %s\n", len(targets), pendingDir)
-	return nil
-}
-
-/*
-@obj: ファイルの存在を確認する
-@ref: IPS3MKEQ-000001-000003 "ルートディレクトリにすでに存在している.tasks/ディレクトリ"
-*/
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-/*
-@obj: ファイルの内容を読み込む
-@ref: IPS3MKEQ-000001-000004 "業務プロンプトには、実行させたい業務がテキストで記述されている。"
-*/
-func readFile(filename string) (string, error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(content)), nil
-}
-
-/*
-@obj: ファイルから行単位でデータを読み込む
-@ref: IPS3MKEQ-000001-000005 "ターゲットリストには、業務対象のリストが改行区切りのテキストで記述されている。"
-*/
-func readLines(filename string) ([]string, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return fmt.Errorf("error reading target list: %w", err)
 	}
 
-	return lines, nil
-}
-
-/*
-@obj: ファイルに内容を書き込む
-@ref: IPS3MKEQ-000001-000007 ".tasks/pending/の下にテキストファイルとして出力する。"
-*/
-func writeFile(filename, content string) error {
-	return os.WriteFile(filename, []byte(content), 0644)
+	tc.logger.Infof("Total tasks created: %d", taskCount)
+	return nil
 }

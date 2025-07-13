@@ -1,0 +1,199 @@
+info:
+    id: SCIK9X27-000001
+    path: docs/タスクワーカー.md
+sentences:
+    - id: SCIK9X27-000001-000000
+      hash: 72f047fa3b21cc547e0f346bbeaa3c5b6070ed991e251517065cbaf58653abc9
+      sentence: タスクワーカーは、`taskorganizer worker`で起動する。
+    - id: SCIK9X27-000001-000001
+      hash: f9cf0a0be3157cb72f6513a536b0e0f027d283e549c1abe583166f1b43c3339b
+      sentence: タスクワーカーの引数は、接続するタスク管理マスターのホスト名（またはIP）と、ポート番号とする。ただし引数のデフォルト設定は、ホスト名はlocalhost、ポート番号は34567とする。
+    - id: SCIK9X27-000001-000002
+      hash: 61324561f992b497980a00f024a3b3b2da5ca13afc57079ea023381acf2db97a
+      sentence: さらにオプショナル引数でルートディレクトリパスを指定する。なお、デフォルトのルートディレクトリはスクリプトを実行した時のカレントディレクトリとする。
+    - id: SCIK9X27-000001-000003
+      hash: 2a5809b61201a092b5800c939f033e6d1cc2e5016bdb4868ed71c9298681ad53
+      sentence: 別のオプショナル引数で、claudeのモデルを指定できるようにする。デフォルトは"sonnet"とし、--opusを指定した場合は、claudeの利用モデルをopusにする。
+    - id: SCIK9X27-000001-000004
+      hash: 8d5dfa9965663d4e2c643fbe72d64c10126292e545dfc21b58a6df15dcc02bf6
+      sentence: タスクワーカーは、マスターからタスク指示を受けるたびに、claudeを起動して、そこにプロンプトを与えてタスクを実行させる。claudeは、起動するごとに新しいセッションを開始する。1つのタスクワーカーが何度もタスク指示を受けると、その度にセッション開始に伴う大きなオーバーヘッドが発生してしまうという問題がある。
+    - id: SCIK9X27-000001-000005
+      hash: cb92eb1ccb1e896f8011d37471d348bae63e2d7fbcd9521d31243a83542cc808
+      sentence: この問題を回避するために、タスクワーカーは、起動直後に下記のように一度だけclaudeを起動して、JSON形式の出力の中にあるsession_idの値を取得し、記憶しておく。これがセッションIDなので、後のタスク実行時に利用する。
+    - id: SCIK9X27-000001-000040
+      hash: 7591328d8eb5c7141f36353c7dcac5dd14b393c17703fa8248951026f24ad195
+      sentence: '`claude -r <セッションID> --model ＜モデル名＞ --allowedTools WebFetch,Read,Write,Bash -p "." --output-format json`'
+    - id: SCIK9X27-000001-000041
+      hash: 00019ce2e807a7accb478f221ec095cadb6333329903ee55147ebd9620678a4a
+      sentence: ただし、ツールのオプショナルに--opusが指定されている場合には、＜モデル名＞に"opus"を指定し、そうでなければ、"sonnet"を指定する。
+    - id: SCIK9X27-000001-000042
+      hash: f2396488fc3532b54c570e0433e56d4e09b75be22cf83c81cb1fffa19f5a00e7
+      sentence: なお、取得したセッションIDをデバッグメッセージとして出力すること。
+    - id: SCIK9X27-000001-000009
+      hash: dd9d481aa5c879f44ff69474f6044cc2259ebddbb367d8d8d38864e2e6ac80d0
+      sentence: タスクワーカーを起動すると、以下の準備処理を実施する。
+    - id: SCIK9X27-000001-00003F
+      hash: bae96438317d1013296d92c38cba21275d8e4a94a77d10dd7386f1e01c63bbad
+      sentence: 前述のsession_id取得処理を実施する。なお、claudeが実行されるディレクトリは、ルートディレクトリとする。ログインできなかった場合など、正常に利用できない場合はプログラムを終了する。
+    - id: SCIK9X27-000001-00000B
+      hash: 0564d559bdad97d3d8eafffd746c205baff0f4e06f4862bbb5de5bbf96a4f9ef
+      sentence: タスク管理マスタとのTCPコネクションを確立し、参入メッセージを送る。
+    - id: SCIK9X27-000001-00000C
+      hash: 087ed0e4235e22e2ae9bf3c153fccae208211553e01d0dc511e25b785032e47e
+      sentence: 別コルーチンやタスクワーカーとやり取りするメッセージは、メッセージフォーマット.mdの仕様に従う。
+    - id: SCIK9X27-000001-000043
+      hash: 4616918b7f9586aee6968adbc97a9138207c0775468b130347816af774b27f5c
+      sentence: 参入メッセージには、type=JOINと、msgフィールドにワーカーIDを含める。ワーカーIDは、タスクワーカーのホスト名とプロセスIDを結合した文字列とする。
+    - id: SCIK9X27-000001-00000E
+      hash: 923fa23542ffd3f31b85ea74f6dfb69b9a3d87de3421edf25dacf6db7349a3d7
+      sentence: 参入メッセージ送信後は、参入応答メッセージ（JOIN_ACK）の受信を待つ。
+    - id: SCIK9X27-000001-00003E
+      hash: a297aecc294f201b180df595e722471043f2ca54d73e6338db4f2c2b8fee1861
+      sentence: 参入応答メッセージを受信した後、メインループに入る。メインループでは、継続的に以下のイベントを待つ。メインループは状態をもち、タスク待受状態（WAITING）、タスク実行中（WORKING）、終了処理中（EXITING）の3つの状態のいずれかにある。メインループでは長時間のブロッキングが発生しないように非同期処理をうまく利用すること。
+    - id: SCIK9X27-000001-000010
+      hash: 746c6dd78eac0c1c8b96025febd8c7861d183ea0bf192d0310c5e3afff6cacb8
+      sentence: タスク管理マスタからのヘルスチェック受信
+    - id: SCIK9X27-000001-000011
+      hash: b03a562916e9379e206bb647eca707a5f54481b3869474382bda59f443efb7b5
+      sentence: タスク管理マスタからのタスク実行依頼受信
+    - id: SCIK9X27-000001-000012
+      hash: 6c99ff28882e59b30d118aa3576daa670071c87aba3ba137e0ef4f9b18826c03
+      sentence: aiコルーチンからのタスク完了通知（type=DONE/FAILED/USAGE_LIMITED）
+    - id: SCIK9X27-000001-000013
+      hash: 83153d095f28b17ba07d4997109d4dca4397bbae7aa3d9074c87874260c03620
+      sentence: タスク管理マスタからの切断通知の受信
+    - id: SCIK9X27-000001-000045
+      hash: ea6c5e56272579af24ba3394dd24d4e3fc96f45bbad36143f78968ad266a8f7c
+      sentence: 終了処理中（EXITING）状態では、タスク管理マスタからのあらゆるメッセージの受信を破棄する。
+    - id: SCIK9X27-000001-000014
+      hash: 078f41c2a8582b93447f5778a35fec2e78819879f49ee5cdcb9791241aa4d424
+      sentence: メインループでは、複数のメッセージをまとめて受信する場合があることを考慮すること。
+    - id: SCIK9X27-000001-000046
+      hash: 2e3215f9db4b432cea129a2f5e824a31592662bce2cb101c1a166e8d44042c9e
+      sentence: タスク待受状態（WAITING）、タスク実行中（WORKING）の状態の時に、ヘルスチェックメッセージ（type=CHECK）を受け取ると、即時にtype=CHECK_ACKを返答する。返答メッセージには、受信したリクエストIDを含める。
+    - id: SCIK9X27-000001-000047
+      hash: fd281d4e507537f00367605fc547daef3bf128dbe0f3bebd0f8913ae73fdb767
+      sentence: タスク待受状態（WAITING）の時にタスク実行依頼メッセージ（type=REQUEST）を受け取ると、まず即時にタスク実行依頼承諾メッセージ（type=REQUEST_ACK）を返答して、状態をタスク実行中状態（WORKING）に遷移する。その後、aiコルーチンを生成して、受け取ったタスク実行依頼メッセージを渡して、AIエージェントにプロンプトを実行させる。
+    - id: SCIK9X27-000001-000017
+      hash: 98075bccb1fce665b6890a91274560e8ac1b3bc2d477ae15fa896f50cdcf0eee
+      sentence: タスク実行依頼承諾メッセージには、受信したリクエストIDを含める。
+    - id: SCIK9X27-000001-00003D
+      hash: 0930b45f25215832ee19faf46931519e9c8fca7d9f32ecdd6bdf341b4927a676
+      sentence: aiコルーチンからのタスク完了通知は、そのままタスク管理マスタにタスク結果報告を送信する。そして、いずれの結果であっても、aiコルーチンに終了メッセージを送信し、状態をタスク待受状態（WAITING）に遷移する。
+    - id: SCIK9X27-000001-000049
+      hash: a087a0fbdd62abbb34eed78b0b5b621368e8cc2bee2454e6bedc5193481a90da
+      sentence: タスク結果報告メッセージには、type=DONE、FAILED、USAGE_LIMITEDのいずれかと、msgフィールドにワーカーIDを記載する。
+    - id: SCIK9X27-000001-00004A
+      hash: 17e7f3582facd1562b8c7d67ed1813947cd1bcadba5932a62508b917e753e047
+      sentence: タスク管理マスタから、切断通知（DISCONN）を受け取ると、状態を終了処理中（EXITING）に遷移し、ワーカー終了処理を開始する。
+    - id: SCIK9X27-000001-00003E
+      hash: 8cf6c82054ef281815c01c7f08245f32322959359a3c85bdb2b13203f247b907
+      sentence: ワーカー終了処理では、タスク管理マスタとのコネクションを切断してメインループを終了し、もし残っていればaiコルーチンを強制終了させる。その後、プログラムを終了する。
+    - id: SCIK9X27-000001-00001C
+      hash: fc44a6a51c6cb7918cf43822c5510d278242f76cbd921d1396f01ed38d041ced
+      sentence: ワーカー終了処理中にCtrl-C（SIG_TERM）が発生したら、aiコルーチンがあればそれを強制停止して、即座にプログラムを終了する。
+    - id: SCIK9X27-000001-00001D
+      hash: 390586bef87ddb690273824fb7f3c0c8801aa895bf35c9c246e051c42b3c2b0f
+      sentence: タスクワーカーのメインループ中に、Ctrl-C（SIG_TERM）が発生したら、切断通知を受け取った時と同じく、起動しているaiコルーチンがあればそれを強制停止し、タスク管理マスタとのコネクションを切断してメインループを終了する。
+    - id: SCIK9X27-000001-00001E
+      hash: 809ab01129e1e4e930dc64c7ef768d61f27589e7f58e9439e17f79afc4dd29d6
+      sentence: aiコルーチンは、AIエージェント実行コマンド（claudeコマンドなど）を実行して、その完了を待つ役割を担う。
+    - id: SCIK9X27-000001-00004B
+      hash: 144e2db3c3c17a62fb5785e4f7f71ad8acbc849fed2931cff932aefbcc33f096
+      sentence: claudeの場合、コマンドの実行は、`claude -r <セッションID> --model ＜モデル名＞ --allowedTools WebFetch,Read,Write,Bash -p <プロンプト文字列>`のように、セッションIDを引き継いで実行する。claude以外については、将来拡張とする。モデル名は起動時の初期化処理と同じように、--opusオプションがある場合は"opus"、ない場合は"sonnet"を指定する。
+    - id: SCIK9X27-000001-000021
+      hash: 3c9442355a3d64c5dd7db503dfba5aa03570edc6f727017ea43ea97c1ee4d79f
+      sentence: メッセージ待ち受けループは、以下のメッセージやAIエージェントからの出力を待ち受け、処理する。
+    - id: SCIK9X27-000001-000022
+      hash: 3bd033641fb005e0a327f5a7cf9dcdde397811a2f745764838cf171984fa4073
+      sentence: メインループからのタスク実行依頼（REQUEST）
+    - id: SCIK9X27-000001-000023
+      hash: 650eeb2dc1fd247e8690d75e9a8e18c17893c8ea9fd63fbc5504b7814783d362
+      sentence: メインループからの終了メッセージ（EXIT）
+    - id: SCIK9X27-000001-00003C
+      hash: 9b0e62e8d6a4db5df05763fb5e04e4337729bd2710dd9df5cfaac5a91c3e3284
+      sentence: AIエージェントからの出力
+    - id: SCIK9X27-000001-000025
+      hash: dc65cb365f5e89ef4ef90816d74ec4ade8190e647dc253618105a6702daaeb95
+      sentence: メッセージ待ち受けループでは、複数のメッセージをまとめて受信する場合があることを考慮すること。
+    - id: SCIK9X27-000001-000026
+      hash: 9e9bab18d504edd5d00f74d0e3816bc355e3930c831fabd1ee58671e44cd4f22
+      sentence: タスク実行依頼を受け取ると、そこに書かれているプロンプトテキストをAIエージェントに与え、タスク実行を開始する。
+    - id: SCIK9X27-000001-000027
+      hash: d1938fce6d4c39f582ba9ef49924d1e6a50ff49f2850bee50e61cc0df1faa85e
+      sentence: ログ出力には、AIエージェントの出力をそのまま出すのではなく、JSONオブジェクト内の、contentの中だけを出力する。なお、出力のJSON文字列の例を以下に2つ示す。
+    - id: SCIK9X27-000001-000028
+      hash: baa38abea70755befb9ac990ea2f1d7e26085a182d129eeaf6163cb942a305d8
+      sentence: |-
+        ```json
+        {"type":"assistant","message":{"id":"msg_01RGbKHGqwiDGVCuLma1PFvR","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"tool_use","id":"toolu_01R3EoMLA52Cr4eYBia2HBLS","name":"TodoWrite","input":{"todos":[{"id":"task_1","content":"作業ディレクトリ(/work)に移動し、results/ディレクトリの存在確認・作成","status":"pending","priority":"high"},{"id":"task_2","content":"https://matchsupport.zettant.com のページにアクセスしてコンテンツを取得","status":"pending","priority":"high"},{"id":"task_3","content":"取得したコンテンツを要約してマークダウン形式でファイル出力","status":"pending","priority":"high"}]}}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"cache_creation_input_tokens":14226,"cache_read_input_tokens":0,"output_tokens":2,"service_tier":"standard"}},"parent_tool_use_id":null,"session_id":"6119c970-bad7-492d-90b7-f02fae663c09"}
+        ```
+    - id: SCIK9X27-000001-000029
+      hash: 4b94e4b45d8ccfd85b3bdc8242dfc7d27b1b224df21dd8d721826006957fa1b4
+      sentence: |-
+        ```json
+        {"type":"assistant","message":{"id":"msg_01RGbKHGqwiDGVCuLma1PFvR","type":"message","role":"assistant","model":"claude-sonnet-4-20250514","content":[{"type":"text","text":"承知いたしました。URLリストから担当のURLにアクセスして、ページの要約をresults/ディレクトリにマークダウン形式で出力する作業を実行いたします。\n\nまず、作業を整理するためにTodoリストを作成します。"}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":4,"cache_creation_input_tokens":14226,"cache_read_input_tokens":0,"output_tokens":2,"service_tier":"standard"}},"parent_tool_use_id":null,"session_id":"6119c970-bad7-492d-90b7-f02fae663c09"}
+        ```
+    - id: SCIK9X27-000001-00002A
+      hash: 608e52055833a24c7939a120c0d635c09f483f881efa1fa4b0b9840cecd49912
+      sentence: aiコルーチンは、AIエージェントのタスクが完了したら、メインループに対して以下のいずれかのタスク実行完了通知を送る。
+    - id: SCIK9X27-000001-00002B
+      hash: 1b01246f78ba6b603e6ad1c31174558ea954f1f32ed9f51ef59a6ffa5df83908
+      sentence: タスク実行が成功した場合はDONEを送る
+    - id: SCIK9X27-000001-00002C
+      hash: fd59b44cbaa50f56c7a51b1f25b701b239ffb3ad03d82470759ce0f83fb1c641
+      sentence: usage limitになった場合はUSAGE_LIMITEDを送る
+    - id: SCIK9X27-000001-00002D
+      hash: a456a112600bb218d3c9c39e147879b486b3edd939a741ac8304075d530fee49
+      sentence: タスク実行が何らかの理由で失敗した場合はFAILEDを送る
+    - id: SCIK9X27-000001-00002E
+      hash: 75ac3a5072372e2f42d9f4828897c9c0ca5efd6e2ce22ee05a4d50e91954fc81
+      sentence: 待ち受けループが終了メッセージを受け取ったら、待ち受けループから脱してコルーチンを終了する。
+    - id: SCIK9X27-000001-00002F
+      hash: 39eac781cf75a40b75b3f4da3c613d4e7c0020f45a9e893b41b2309fa479c48e
+      sentence: タスクワーカーがタスク管理マスタと送受信するメッセージは、メッセージフォーマット.mdに準拠したJSON形式とする。
+    - id: SCIK9X27-000001-000030
+      hash: b9a5265afc09e71425a419adae28b28d22702a979fbb97beff013d1c2b9a4612
+      sentence: 'JOIN: { "type": "JOIN", "msg": "<ワーカーID>" }'
+    - id: SCIK9X27-000001-000031
+      hash: 151a25b0d18c628b954575843b58d72ae2b6d5e70eb2ec439b6234e644e0ac84
+      sentence: 'REQUEST_ACK: { "type": "REQUEST_ACK", "msg": "", "req_id": "<リクエストID>" }'
+    - id: SCIK9X27-000001-000032
+      hash: df29bf467786577334cefcfb0c7e6702b0ab4a85c8e560ec84b237046a4891b1
+      sentence: 'CHECK_ACK: { "type": "CHECK_ACK", "msg": "", "req_id": "<リクエストID>" }'
+    - id: SCIK9X27-000001-000033
+      hash: 8f3484b9ee731bc751cbcecae60f11b687ffa2f5888d6cb90269c8ae6a03cdb7
+      sentence: 'DONE: { "type": "DONE", "msg": "<タスクファイル名>" }'
+    - id: SCIK9X27-000001-000034
+      hash: 83db5eb0e6556d87e3ec4585a61769c32d8fef879c18f4734379db03555982e2
+      sentence: 'FAILED: { "type": "FAILED", "msg": "<タスクファイル名>" }'
+    - id: SCIK9X27-000001-000035
+      hash: c552c4060d4ae6c3a869420d8049a6b057a59940868876c34d4631c6783c0e4b
+      sentence: 'LEAVE: { "type": "LEAVE", "msg": ""'
+    - id: SCIK9X27-000001-000036
+      hash: 625d217d3956c5d780e21d31563ccbcfa0605f210f7805211fa247bf409d61cf
+      sentence: 'USAGE_LIMITED: {"type": "USAGE_LIMITED", "msg": "<ワーカーID>" }'
+    - id: SCIK9X27-000001-000037
+      hash: 426f035381786f30f9954a57bd81abd7f279d84f8661c2fb835d6aaab90ab2eb
+      sentence: 'JOIN_ACK: { "type": "JOIN_ACK", "msg": "" }'
+    - id: SCIK9X27-000001-000038
+      hash: eaaeafeb885a85f02f1edc0c6a91b7eeef688254cb621306dff2c2f4536b4a3f
+      sentence: 'REQUEST: { "type": "REQUEST", "msg": "<プロンプトテキスト>", "req_id": "<リクエストID>" }'
+    - id: SCIK9X27-000001-000039
+      hash: 2e5164c69d024749ec6cdddad717ca3e98fa71ba0679314f300179561f525c8d
+      sentence: 'CHECK: { "type": "CHECK", "msg": "", "req_id": "<リクエストID>" }'
+    - id: SCIK9X27-000001-00004C
+      hash: ba5ef754049b76421ac5c2dd282b262fc8d11d194ce8e451ca18e46bd8d4e346
+      sentence: タスク管理マスタは、REQUESTおよびCHECKメッセージに対して10秒のタイムアウトを設定している。タスクワーカーは、これらのメッセージを受信したら可能な限り迅速に応答する必要がある。
+    - id: SCIK9X27-000001-00003B
+      hash: 3dd1013284b7e3c6e4169f0743782ef1c0a22b915fa7c10460b3d6a16b0e76dd
+      sentence: タイムアウトを防ぐための実装上の工夫：
+    - id: SCIK9X27-000001-00004D
+      hash: 246bba649ebf17faab0b6b5da99216132e9f2579b1f37611ab87185f990873c0
+      sentence: REQUESTメッセージ受信後5秒間は、メッセージ受信チェックを高頻度（1秒間隔）で実施
+    - id: SCIK9X27-000001-00003D
+      hash: 38ead29ba7f669fb5a749caf23fc55181a5db14eaeca6294692ccebf3950cd27
+      sentence: ソケット受信バッファを大きく設定（65536バイト）
+    - id: SCIK9X27-000001-00003E
+      hash: b7b458c8e2f9104d3d947a633c86c0c237637afda99d79b3974d78557107eeb5
+      sentence: TCP_NODELAYを設定して即座にメッセージを送信

@@ -1,198 +1,291 @@
 package master
 
 import (
-	"context"
-	"log"
-	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/quvox/task_organizer/internal/common"
 )
 
-/*
-@obj: LEAVEメッセージを処理する
-@ref: IPS3MKEQ-000002-000027 "メインループがタスクワーカーから離脱メッセージ（LEAVE）を受信した場合、またはタスクワーカーとのTCP接続が切れた場合、該当するワーカーオブジェクトに対してワーカー切断処理を実施する。"
-*/
-func (m *Master) handleLeave(msg WorkerMessage) {
-	m.workersMu.RLock()
-	worker, exists := m.workers[msg.WorkerID]
-	m.workersMu.RUnlock()
+// setupSignalHandler はシグナルハンドラーを設定する
+// @obj: Ctrl-Cなどのシグナルを処理してグレースフルシャットダウンを実行。二度目のシグナルで強制終了
+// @ref: SCIK9X27-000003-00001F - Ctrl-C（SIG_TERM）の処理
+func (tm *TaskMaster) setupSignalHandler() {
+	sigChan := make(chan os.Signal, 2) // バッファサイズを増やして二度目のシグナルを受け取る
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	if !exists {
+	go func() {
+		// 初回のシグナル
+		<-sigChan
+		tm.logger.Info("Received first shutdown signal, starting graceful shutdown...")
+		tm.cancel()
+		
+		// 二度目のシグナル監視開始
+		go func() {
+			<-sigChan
+			tm.logger.Warn("Received second shutdown signal, forcing immediate exit")
+			os.Exit(1)
+		}()
+	}()
+}
+
+// handleShutdown はシャットダウン処理を実行する
+// @obj: マスターの終了処理を統括
+// @ref: SCIK9X27-000003-00001E, SCIK9X27-000003-00001F
+func (tm *TaskMaster) handleShutdown() {
+	tm.logger.Info("Starting graceful shutdown...")
+
+	// @obj: .tasks/working/以下に実施中のプロンプトファイルが残っていれば、それらをすべて.tasks/pending/に移動する
+	// @ref: SCIK9X27-000003-000034
+	tm.moveWorkingTasksToPending()
+
+	// @obj: 統計情報の表示
+	// @ref: SCIK9X27-000003-000034
+	tm.displayStatistics()
+
+	// リスナーはすでにメインスレッドで閉じられている
+
+	// 全ワーカーに切断通知を送信
+	tm.sendDisconnectToAllWorkers()
+
+	// ワーカーの切断を待つ（最大5秒）
+	tm.waitForWorkersDisconnect(5 * time.Second)
+
+	// ゴルーチンの終了はメインスレッドで待機する（デッドロック回避）
+	tm.logger.Info("Shutdown preparations complete")
+
+	tm.logger.Info("Shutdown complete")
+}
+
+// moveWorkingTasksToPending は.tasks/working/のファイルを.tasks/pending/に移動する
+// @obj: 終了処理時に実行中タスクを未処理タスクに戻す
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) moveWorkingTasksToPending() {
+	workingDir := filepath.Join(tm.rootDir, ".tasks", "working")
+	pendingDir := filepath.Join(tm.rootDir, ".tasks", "pending")
+	
+	tm.logger.Infof("Moving remaining working tasks to pending directory")
+	
+	// workingディレクトリの内容を取得
+	entries, err := os.ReadDir(workingDir)
+	if err != nil {
+		tm.logger.Errorf("Failed to read working directory: %v", err)
 		return
 	}
-
-	m.disconnectWorker(worker)
-}
-
-/*
-@obj: ワーカー切断処理を実行する
-@ref: IPS3MKEQ-000002-000028 "ワーカー切断処理は、ワーカーオブジェクトの稼働状態がworkingだった場合、.tasks/working/以下にある実施中のプロンプトファイルを、.tasks/pending/に移動する。"
-*/
-func (m *Master) disconnectWorker(worker *Worker) {
-	worker.mu.Lock()
 	
-	/*
-	@obj: 実行中のタスクをpendingに戻す
-	@ref: IPS3MKEQ-000002-000028 "ワーカーオブジェクトの稼働状態がworkingだった場合、.tasks/working/以下にある実施中のプロンプトファイルを、.tasks/pending/に移動する。"
-	*/
-	if worker.state == StateWorking && worker.workingFile != "" {
-		workingPath := filepath.Join(m.config.RootDir, ".tasks", "working", worker.workingFile)
-		pendingPath := filepath.Join(m.config.RootDir, ".tasks", "pending", worker.workingFile)
+	movedCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		
+		taskFile := entry.Name()
+		workingPath := filepath.Join(workingDir, taskFile)
+		pendingPath := filepath.Join(pendingDir, taskFile)
+		
+		tm.logger.Infof("Moving task file: %s from working to pending", taskFile)
 		
 		if err := os.Rename(workingPath, pendingPath); err != nil {
-			log.Printf("Failed to move task back to pending: %v", err)
+			tm.logger.Errorf("Failed to move task file %s from working to pending: %v", taskFile, err)
+		} else {
+			tm.logger.Infof("Successfully moved task file: %s", taskFile)
+			movedCount++
 		}
 	}
-
-	/*
-	@obj: 稼働状態をdisconnectingに設定する
-	@ref: IPS3MKEQ-000002-000028 "その時点での稼働状態に関わらず、稼働状態をexitingにセットし、ワーカーオブジェクトを引数としてワーカー切断スレッドを起動する。"
-	*/
-	worker.state = StateDisconnecting
-	workerID := worker.id
-	conn := worker.conn
-	worker.mu.Unlock()
-
-	/*
-	@obj: ワーカー切断スレッドを起動する
-	@ref: IPS3MKEQ-000002-000029 "ワーカー切断スレッドは、ワーカーオブジェクト内のソケット情報を使って、ワーカーとのTCP接続を切断する。"
-	*/
-	go m.disconnectWorkerThread(workerID, conn)
+	
+	tm.logger.Infof("Moved %d task files from working to pending", movedCount)
 }
 
-/*
-@obj: ワーカー切断スレッドを実行する
-@ref: IPS3MKEQ-000002-000029 "ワーカー切断スレッドは、ワーカーオブジェクト内のソケット情報を使って、ワーカーとのTCP接続を切断する。切断が完了したら、メインループに、切断メッセージ（DISCONNECT）を送信し、ワーカー切断スレッドを終了する。"
-@ref: IPS3MKEQ-000002-00002A "ワーカー切断スレッドには切断タイムアウトを設け、5秒たっても戻ってこなかった場合も、強制的にメインループに切断メッセージ（DISCONNECT）を送信し、ワーカー切断スレッドを終了する。"
-*/
-func (m *Master) disconnectWorkerThread(workerID string, conn net.Conn) {
-	/*
-	@obj: タイムアウト付きでコネクションを切断する
-	@ref: IPS3MKEQ-000002-00002A "ワーカー切断スレッドには切断タイムアウトを設け、5秒たっても戻ってこなかった場合"
-	*/
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		conn.Close()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// 正常に切断完了
-	case <-ctx.Done():
-		// タイムアウト
-		log.Printf("Timeout while disconnecting worker %s", workerID)
+// sendDisconnectToAllWorkers は全ワーカーに切断通知を送信する
+// @obj: 接続中の全ワーカーに終了を通知し、各ワーカーに対して切断スレッドを起動
+// @ref: SCIK9X27-000003-00001E, SCIK9X27-000003-000029, SCIK9X27-000003-000030
+func (tm *TaskMaster) sendDisconnectToAllWorkers() {
+	tm.workersMu.RLock()
+	workers := make([]*WorkerInfo, 0, len(tm.workers))
+	for _, worker := range tm.workers {
+		workers = append(workers, worker)
 	}
+	tm.workersMu.RUnlock()
 
-	/*
-	@obj: 切断メッセージを送信する
-	@ref: IPS3MKEQ-000002-000029 "切断メッセージ（DISCONNECT）を送信し、ワーカー切断スレッドを終了する。切断メッセージには、ワーカーIDを載せる。"
-	*/
-	m.msgChan <- WorkerMessage{
-		WorkerID: workerID,
-		Message: &common.Message{
-			Type: common.MessageTypeDisconnect,
-			Msg:  workerID,
-		},
+	for _, worker := range workers {
+		// @obj: ワーカーに対して、切断通知メッセージ（DISCONN）を送信する
+		// @ref: SCIK9X27-000003-00003F
+		disconnectMsg := common.NewMessage(common.TypeDisconn, "Master is shutting down", "")
+		if err := tm.sendMessage(worker.Conn, disconnectMsg); err != nil {
+			tm.logger.Errorf("Failed to send disconnect message to worker %s: %v", worker.ID, err)
+		} else {
+			tm.logger.Infof("Sent disconnect notification to worker %s", worker.ID)
+		}
+		
+		// ワーカーの状態を切断処理中に変更
+		worker.mu.Lock()
+		worker.State = StateDisconnecting
+		worker.mu.Unlock()
+		
+		// @obj: 各ワーカーに対して切断スレッドを起動
+		// @ref: SCIK9X27-000003-000029, SCIK9X27-000003-000030
+		tm.wg.Add(1)
+		go tm.workerDisconnectThread(worker.ID)
 	}
 }
 
-/*
-@obj: DISCONNECTメッセージを処理する
-@ref: IPS3MKEQ-000002-00002B "メインループがDISCONNECTメッセージを受信したら、そこに書かれているワーカーIDを持つワーカーオブジェクトを削除する。"
-*/
-func (m *Master) handleDisconnect(msg WorkerMessage) {
-	m.workersMu.Lock()
-	defer m.workersMu.Unlock()
+// waitForWorkersDisconnect はワーカーの切断を待つ
+// @obj: 指定時間内にワーカーが切断されるのを待機
+// @ref: SCIK9X27-000003-00001E - ワーカーの切断待ち
+func (tm *TaskMaster) waitForWorkersDisconnect(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 
-	workerID := msg.Message.Msg
-	if _, exists := m.workers[workerID]; exists {
-		delete(m.workers, workerID)
-		log.Printf("Worker %s disconnected", workerID)
+	for {
+		select {
+		case <-ticker.C:
+			tm.workersMu.RLock()
+			workerCount := len(tm.workers)
+			tm.workersMu.RUnlock()
+
+			if workerCount == 0 {
+				tm.logger.Info("All workers disconnected")
+				return
+			}
+
+			if time.Now().After(deadline) {
+				tm.logger.Warn("Timeout waiting for workers to disconnect")
+				// 強制的に接続を閉じる
+				tm.forceDisconnectAllWorkers()
+				return
+			}
+		}
 	}
 }
 
+// forceDisconnectAllWorkers は全ワーカーを強制切断する
+// @obj: タイムアウト時に残っているワーカーを強制的に切断
+// @ref: SCIK9X27-000003-00001E - 強制切断処理
+func (tm *TaskMaster) forceDisconnectAllWorkers() {
+	tm.workersMu.Lock()
+	defer tm.workersMu.Unlock()
 
-/*
-@obj: タスク管理マスタの終了処理を実行する
-@ref: IPS3MKEQ-000002-000034 "タスク管理マスタ終了処理では、合計稼働時間、全タスク数、成功タスク数、失敗タスク数を表示するとともに、全てのTCPコネクションを切断し、タスク管理マスタを終了する。"
-@ref: IPS3MKEQ-000002-000035 "コネクションの切断タイムアウトを10秒とし、タイムアウトしたら、プログラムを強制終了する。切断タイムアウトをブロックしないように注意する。"
-*/
-func (m *Master) shutdown() error {
-	log.Println("Shutting down task master...")
-
-	/*
-	@obj: 統計情報を表示する
-	@ref: IPS3MKEQ-000002-000034 "合計稼働時間、全タスク数、成功タスク数、失敗タスク数を表示する"
-	*/
-	duration := time.Since(m.startTime)
-	m.stats.mu.Lock()
-	log.Printf("Statistics:")
-	log.Printf("  Total runtime: %v", duration)
-	log.Printf("  Total tasks: %d", m.stats.TotalTasks)
-	log.Printf("  Successful tasks: %d", m.stats.SuccessTasks)
-	log.Printf("  Failed tasks: %d", m.stats.FailedTasks)
-	m.stats.mu.Unlock()
-
-	/*
-	@obj: リスナーを閉じる
-	*/
-	if m.listener != nil {
-		m.listener.Close()
+	for workerID, worker := range tm.workers {
+		tm.logger.Warnf("Force disconnecting worker %s", workerID)
+		worker.Conn.Close()
+		
+		// 実行中のタスクをpendingに戻す
+		if worker.CurrentTask != "" && worker.State == StateWorking {
+			tm.returnTaskToPending(worker.CurrentTask)
+		}
 	}
+	
+	// ワーカーマップをクリア
+	tm.workers = make(map[string]*WorkerInfo)
+}
 
-	/*
-	@obj: 全ワーカーとの接続を切断する
-	@ref: IPS3MKEQ-000002-000034 "全てのTCPコネクションを切断し"
-	@ref: IPS3MKEQ-000002-000035 "コネクションの切断タイムアウトを10秒とし"
-	*/
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+// displayStatistics は統計情報を表示する
+// @obj: シャットダウン時に合計稼働時間、全タスク数、成功/失敗数を表示
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) displayStatistics() {
+	duration, totalTasks, successTasks, failedTasks := tm.getStatistics()
+	
+	// 時間を見やすい形式に変換
+	hours := int(duration.Hours())
+	minutes := int(duration.Minutes()) % 60
+	seconds := int(duration.Seconds()) % 60
+	
+	// 成功率と失敗率の計算
+	var successRate, failureRate float64
+	if totalTasks > 0 {
+		successRate = float64(successTasks) / float64(totalTasks) * 100
+		failureRate = float64(failedTasks) / float64(totalTasks) * 100
+	}
+	
+	tm.logger.Info("=== タスク管理マスター統計情報 ===")
+	tm.logger.Infof("合計稼働時間: %d時間%d分%d秒", hours, minutes, seconds)
+	tm.logger.Infof("全タスク数: %d", totalTasks)
+	tm.logger.Infof("成功タスク数: %d (%.1f%%)", successTasks, successRate)
+	tm.logger.Infof("失敗タスク数: %d (%.1f%%)", failedTasks, failureRate)
+	tm.logger.Info("==============================")
+}
 
-	shutdownDone := make(chan struct{})
-	go func() {
-		/*
-		@obj: 全ワーカーに切断通知を送る
-		*/
-		m.workersMu.RLock()
-		for _, worker := range m.workers {
-			// 切断通知は送らず、直接接続を閉じる
-			worker.conn.Close()
+// workerDisconnectThread は個別ワーカーの切断処理を行うスレッド
+// @obj: 5秒タイムアウトでワーカーの切断を監視し、完了時にDISCONNECT内部メッセージを送信
+// @ref: SCIK9X27-000003-000029, SCIK9X27-000003-000030
+func (tm *TaskMaster) workerDisconnectThread(workerID string) {
+	defer tm.wg.Done()
+	
+	tm.logger.Debugf("Starting disconnect thread for worker %s", workerID)
+	
+	// @obj: 5秒タイムアウトでワーカーの切断を待機
+	// @ref: SCIK9X27-000003-000030
+	timeout := 5 * time.Second
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	
+	deadline := time.Now().Add(timeout)
+	
+	for {
+		select {
+		case <-tm.ctx.Done():
+			// マスター全体の終了
+			return
+			
+		case <-ticker.C:
+			// ワーカーがまだ存在するかチェック
+			tm.workersMu.RLock()
+			_, exists := tm.workers[workerID]
+			tm.workersMu.RUnlock()
+			
+			if !exists {
+				// ワーカーが正常に切断完了
+				tm.logger.Debugf("Worker %s disconnected normally", workerID)
+				
+				// @obj: DISCONNECT内部メッセージをメインループに送信
+				// @ref: SCIK9X27-000003-000030
+				disconnectMsg := &InternalMessage{
+					Message:  common.NewMessage(common.TypeDisconnect, "Worker disconnected", ""),
+					WorkerID: workerID,
+				}
+				
+				select {
+				case tm.msgChan <- disconnectMsg:
+					tm.logger.Debugf("Sent DISCONNECT message for worker %s", workerID)
+				case <-time.After(1 * time.Second):
+					tm.logger.Warnf("Timeout sending DISCONNECT message for worker %s", workerID)
+				}
+				return
+			}
+			
+			if time.Now().After(deadline) {
+				// タイムアウト：強制切断
+				tm.logger.Warnf("Worker %s disconnect timeout, forcing disconnection", workerID)
+				
+				tm.workersMu.Lock()
+				if worker, exists := tm.workers[workerID]; exists {
+					worker.Conn.Close()
+					// 実行中のタスクをpendingに戻す
+					if worker.CurrentTask != "" && worker.State == StateWorking {
+						tm.returnTaskToPending(worker.CurrentTask)
+					}
+					delete(tm.workers, workerID)
+				}
+				tm.workersMu.Unlock()
+				
+				// DISCONNECT内部メッセージを送信
+				disconnectMsg := &InternalMessage{
+					Message:  common.NewMessage(common.TypeDisconnect, "Worker force disconnected", ""),
+					WorkerID: workerID,
+				}
+				
+				select {
+				case tm.msgChan <- disconnectMsg:
+					tm.logger.Debugf("Sent DISCONNECT message for force-disconnected worker %s", workerID)
+				case <-time.After(1 * time.Second):
+					tm.logger.Warnf("Timeout sending DISCONNECT message for force-disconnected worker %s", workerID)
+				}
+				return
+			}
 		}
-		m.workersMu.RUnlock()
-
-		// connMapもクリーンアップ
-		m.connMu.Lock()
-		for _, conn := range m.connMap {
-			conn.Close()
-		}
-		m.connMap = make(map[string]net.Conn)
-		m.connMu.Unlock()
-
-		/*
-		@obj: 全てのゴルーチンの終了を待つ
-		*/
-		m.wg.Wait()
-		close(shutdownDone)
-	}()
-
-	select {
-	case <-shutdownDone:
-		log.Println("Task master shutdown completed")
-		return nil
-	case <-ctx.Done():
-		/*
-		@obj: タイムアウト時の処理
-		@ref: IPS3MKEQ-000002-000035 "タイムアウトしたら、プログラムを強制終了する。"
-		@ref: IPS3MKEQ-000002-000036 "タスク管理マスタ終了処理中にCtrl-C（SIG_TERM）が発生したら、即座にプログラムを終了する。"
-		*/
-		log.Println("Shutdown timeout reached, forcing exit")
-		return ctx.Err()
 	}
 }

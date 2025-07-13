@@ -1,0 +1,190 @@
+info:
+    id: SCIK9X27-000003
+    path: docs/タスク管理マスタ.md
+sentences:
+    - id: SCIK9X27-000003-000000
+      hash: bd827f5449ccee4aeb01a7ffffedfdc5806bed0167f5a3b919192e1e85b0fa78
+      sentence: タスク管理マスタは、`taskorganizer master`で起動する。
+    - id: SCIK9X27-000003-000001
+      hash: 1bfbe5ba06ecf025d5a3a174095ffefc0772524b18a4456c4aec7d2340185d12
+      sentence: 引数には、待受ポート番号を与える。ただしデフォルト設定を34567とする。
+    - id: SCIK9X27-000003-000002
+      hash: 61324561f992b497980a00f024a3b3b2da5ca13afc57079ea023381acf2db97a
+      sentence: さらにオプショナル引数でルートディレクトリパスを指定する。なお、デフォルトのルートディレクトリはスクリプトを実行した時のカレントディレクトリとする。
+    - id: SCIK9X27-000003-000003
+      hash: 6c40a855d60b0ea2be830eef0bf3e03ce4f89e90e080b8c108fa15dd4a6254f0
+      sentence: 以降に記載する.tasksのディレクトリは、ルートディレクトリに配置されているものとする。
+    - id: SCIK9X27-000003-000004
+      hash: e26915b68bf0d61955e0c9ed29631c04a9458ce8d30d75540f649ad713e2d844
+      sentence: 別スレッドやタスクワーカーとやり取りするメッセージは、メッセージフォーマット.mdの仕様に従う。
+    - id: SCIK9X27-000003-000005
+      hash: b7c69d669e46b73a7bdf73d96b0dc2704bd95075b31d8f9528002e6aa37235ee
+      sentence: タスク管理マスタを起動すると、すぐにメインループに入ると同時に、タイマースレッドを起動する。
+    - id: SCIK9X27-000003-000006
+      hash: d8d26bd7a11b5aaf2844e83e1301ad964840210c78b6683343efc2e20c165c59
+      sentence: メインループでは、イベントやメッセージの待ち受けと、ワーカーの動作状態の管理を実施する。
+    - id: SCIK9X27-000003-000007
+      hash: 7ed6e3786383bee36a900f81684bcb8334bc6a6f181bfc0cd8b7d4d45da85310
+      sentence: メインループでは、以下のイベントを待つ。
+    - id: SCIK9X27-000003-000008
+      hash: 3bb5edea5cf6ff2997388cc4b35ae7cd1d498ffba993e1c101f3e0e762e3eb69
+      sentence: タスクワーカーからのTCP接続受け入れ（bindするIPは0.0.0.0とする）
+    - id: SCIK9X27-000003-000009
+      hash: df15cd8e2416606746a8cebd37f60b37c5d4118230aaf91e7e80863a4b6dbe61
+      sentence: タスクワーカーからの各種メッセージの受信（JOIN、DONE/FAILED、LEAVE、CHECK_ACK, USAGE_LIMITED）
+    - id: SCIK9X27-000003-00000A
+      hash: eeb4f4c20dc2c85bf79f1281a236d16984cc84d1f68b0d4448399a0bc1861c94
+      sentence: タイマースレッドから発行されるタイマーイベントメッセージ（TIMER）の受信
+    - id: SCIK9X27-000003-00000B
+      hash: 81b8793fa2d7b0e83c058cebb8910c5abf96d2d5e12c1617249d728a03ad22b7
+      sentence: 別スレッドからのメッセージ受信（COMPLETED、DISCONNECT、TIMEOUT_CHECK）
+    - id: SCIK9X27-000003-00000C
+      hash: e232de6a5759a45dbda2fa42f9e489b749b75069db71411db2da1601b3d012df
+      sentence: タスク管理マスタのメインループ中に、Ctrl-C（SIG_TERM）が発生したら、待ち受けループを脱出して、タスク管理マスタ終了処理を実施する。
+    - id: SCIK9X27-000003-00003D
+      hash: 4fc9a623a6926e351cc062b529949e3cd1a7dc3bce2b72ec743c66eafd7c08ee
+      sentence: メインループでは、複数のメッセージをまとめて受信する場合があることを考慮すること。また、長時間のブロッキングが発生しないように非同期処理をうまく利用すること。
+    - id: SCIK9X27-000003-00003B
+      hash: 66a7655c053d84e0abb795a61bf97c155a304ca00a32dfef90911ccf06dccd33
+      sentence: タイマースレッドは、定期的にタイマーイベントメッセージをメインループに送信する。デフォルト設定は5秒ごととする。
+    - id: SCIK9X27-000003-00000F
+      hash: 76b6d220b66dbd8cc04119ea9666c469d019001894b3665c8450ca8d3afb1073
+      sentence: タイマースレッドは、メインループが終了するまで生存する。
+    - id: SCIK9X27-000003-000010
+      hash: 0dac267980a7df71bb8a982d5390ffb204fa678a9911937b6b49f7edb8ef4b02
+      sentence: タスク管理マスタは、参入しているタスクワーカーごとに、接続状態およびタスク稼働状態をワーカーオブジェクトで管理する。
+    - id: SCIK9X27-000003-000011
+      hash: b4ec3138b3eb1c3aebb30f5db37e16d18a94a4c2ec51c63d2b59fa00e4c34213
+      sentence: ワーカーオブジェクトでは、以下の情報を管理する。
+    - id: SCIK9X27-000003-000012
+      hash: 0eabb8e647b5f6ae10134ff232327d6954656a6b4e6aa8a0e2b0c31d9ef68b8b
+      sentence: コネクションに紐づくソケット情報
+    - id: SCIK9X27-000003-000013
+      hash: 3fa2af8f8193e5780120028c8ee460d47d35ebcb58316c48b866a17ae0fc2882
+      sentence: ワーカーID
+    - id: SCIK9X27-000003-000014
+      hash: 89aca8c497b457e695353fe76e8d7228b3aaa34f8f8da30c9896552b2053be9f
+      sentence: 対応中の.tasks/working/のファイル名
+    - id: SCIK9X27-000003-000015
+      hash: 1b7eac137c816b97e7eb90017c77242b143b7216bd39d35c6619c26f78f86538
+      sentence: 稼働状態（idle/requesting/working/disconnecting）
+    - id: SCIK9X27-000003-000016
+      hash: ebf6b68fa1439962ed1a984827a380425152ae0fdb0f3ca2c1052be925d5e408
+      sentence: リクエスト情報配列（複数のリクエスト情報を格納できるようにする）
+    - id: SCIK9X27-000003-000017
+      hash: 28b50d4a09947d3a3f83b48926252a8782814ee1ca24329a2e12609c0b2733c4
+      sentence: '  * リクエスト情報は、リクエストIDとタイムアウト時刻の組みで表される'
+    - id: SCIK9X27-000003-000018
+      hash: 7bfb1a91591c271845d6cf2c6499a636f550a7f654e1fec53f17da29aeff4241
+      sentence: メインループで、タスクワーカーから参入メッセージ（JOIN）を受信したら、当該タスクワーカーのワーカーオブジェクトを生成し、その後、参入応答メッセージを返答する。なお、参入メッセージには、type=JOINとmsg=ワーカーIDが含まれている。参入応答メッセージにはtype=JOIN_ACKを送る（msgは空文字でよい）。
+    - id: SCIK9X27-000003-000019
+      hash: fd92bd36897689455508c6176282a6a48e7ab76c0b61b17da90315376d5d9085
+      sentence: ワーカーオブジェクトのタスク稼働状態の初期値は「idle」とする。
+    - id: SCIK9X27-000003-00001A
+      hash: e549163ca3575c062b2406a2b399e176b234d8dd2e8984bfdad4cd64e3d01988
+      sentence: 何らかのイベントが起こるたびに、まだ.tasks/pending/の下にファイルが残っていないかを確認し、残っていれば、以下のタスク依頼処理を実施する。
+    - id: SCIK9X27-000003-00001B
+      hash: b9e58137db203b08ba410653a10101cccf083b59ae790a4943ac0af2653bdee8
+      sentence: タスク依頼処理は、ワーカーオブジェクト群をチェックして、タスク稼働状態が「idle」のものがあった場合に、以下の処理を実施する。idleのものがなければ、処理を終了する。
+    - id: SCIK9X27-000003-00003C
+      hash: 285e164ada676d111346e85fe22e6f795ee82b0fec29f7d715ea8c7c072f2a81
+      sentence: 稼働状態がidleになっているワーカオブジェクトを見つける。これを対象ワーカオブジェクトと呼ぶことにする
+    - id: SCIK9X27-000003-00003D
+      hash: 69ae3ae0ebd2f049d6e6347612562a5ddf445a4481b0cf7958bab0bbe52cd242
+      sentence: 対象ワーカオブジェクトのタスク稼働状態をrequestingにする。
+    - id: SCIK9X27-000003-00001C
+      hash: 98149f70ad31134dac545d33e60df4ba084e222d63a38735511cac07f7a89e29
+      sentence: .tasks/pending/の中から1つファイルを取り出して、.tasks/working/に移動する
+    - id: SCIK9X27-000003-00003E
+      hash: c54a7018f59fea504006fd67de9abbccf63235b07c7d3bec40ef28d2088416fb
+      sentence: 対象ワーカオブジェクトのソケットに対して、今.tasks/working/に移動したタスクプロンプトの実行を依頼するメッセージ（REQUEST）を送る。メッセージには、リクエストID（乱数）とタスクファイル名、プロンプトテキストを含める
+    - id: SCIK9X27-000003-00003C
+      hash: beb5cc3a47b6af2f2e705c115b2697b14ad39add9e97be60b67696d6c55e07f7
+      sentence: そのワーカーオブジェクトの稼働状態をrequestingに、リクエスト情報（タイムアウト時刻を現在時刻+10秒と、依頼に含めたリクエストID）を追加する。
+    - id: SCIK9X27-000003-00001F
+      hash: b89a7e009bffe685567b14210a771ea93a9f4de0f410304d3db82dc53766d695
+      sentence: そのワーカーIDとリクエスト情報を引数として、タイムアウト監視スレッドを起動する。
+    - id: SCIK9X27-000003-000020
+      hash: afb0b25e29c91d1b1985b49f7f64302c507f39760e4f545d1aca90e8caca381b
+      sentence: メインループが実行依頼メッセージに対する返答（REQUEST_ACK）を受信すれば、該当するワーカーオブジェクトの稼働状態をworkingに変更し、該当するリクエスト情報を配列から削除する。（REQUEST_ACKにはリクエストIDが含まれる）
+    - id: SCIK9X27-000003-000021
+      hash: d0f61201165cd0371bf7c1d04daf9338e8dbf2415e10a7925e3ebf5e562893a5
+      sentence: タイムアウト監視スレッドは、指定された秒数だけ経ったらタイムアウト確認メッセージ（TIMEOUT_CHECK）をメインループに送信し、処理を終了する。なお、タイムアウト確認メッセージには、リクエストIDを載せる。
+    - id: SCIK9X27-000003-000022
+      hash: 1bf81b04ae5adc359fb6a34738ffa81674e30daab58b6e57a40b19fdedc0c48f
+      sentence: メインループがタイムアウト確認メッセージ（TIMEOUT_CHECK）を受け取ったら、ワーカーオブジェクトの中から、タイムアウト確認メッセージに含まれているリクエストIDをリクエスト情報の中に持つものを取得する。合致するオブジェクトがなければ（既にREQUEST_ACKで削除済みのため）何もしない。取得できた場合は、現在時刻が該当するリクエスト情報のタイムアウト時刻を過ぎていれば、該当するリクエスト情報を配列から削除し、ワーカーオブジェクトに対してワーカー切断処理を実施する。
+    - id: SCIK9X27-000003-000023
+      hash: 8dbbb1f24b983d469d6b07bb965868e274658cad23d79b98537fb8665840c56d
+      sentence: メインループがタスクワーカーから受け取った結果報告メッセージのtypeがDONEだった場合は、.tasks/working/の下の該当タスクプロンプトファイルを.tasks/done/に移動する。
+    - id: SCIK9X27-000003-000024
+      hash: 8b04ef0206c606fba21c86fcd82344b0d3d7b7dd595f86bb0869b024e5e8c593
+      sentence: メインループがタスクワーカーから受け取った結果報告メッセージのtypeがFAILEDだった場合は、.tasks/failed/に移動する。また、当該タスクワーカーのタスク稼働状態を「idle」に変更する。
+    - id: SCIK9X27-000003-000025
+      hash: ae3e02ae85af26c230d67b84899b2e64da2779758bbac8bfba1109c8610d61a7
+      sentence: メインループがタスクワーカーから受け取った結果報告メッセージのtypeがUSAGE_LIMITEDだった場合は、.tasks/working/の下の当該タスクプロンプトファイルを.tasks/pending/に移動させ、そのワーカーオブジェクトに対してワーカー切断処理を実施する。
+    - id: SCIK9X27-000003-000026
+      hash: f1763aa88a9f6565376287b94c1e78122f46ff27292bdc58a2ec8fe7fdc8df57
+      sentence: COMPLETEDメッセージ（type=COMPLETED）を受信した場合は、メインループを抜けて、タスク管理マスタ終了処理を実施する。
+    - id: SCIK9X27-000003-000027
+      hash: ad4209c517bcae528b4eedf83136294a167f2d07a5120f5342bf4bf4ebdf468a
+      sentence: メインループがタスクワーカーから離脱メッセージ（LEAVE）を受信した場合、またはタスクワーカーとのTCP接続が切れた場合、該当するワーカーオブジェクトに対してワーカー切断処理を実施する。。
+    - id: SCIK9X27-000003-000028
+      hash: c38386c98ed421c4e83256d0639aab2a88fb69cc875c8d7fd350b7738777f8ed
+      sentence: ワーカー切断処理は、ワーカーオブジェクトの稼働状態がworkingだった場合、.tasks/working/以下にある実施中のプロンプトファイルを、.tasks/pending/に移動する。また、その時点での稼働状態に関わらず、稼働状態をexitingにセットし、ワーカーオブジェクトを引数としてワーカー切断スレッドを起動する。
+    - id: SCIK9X27-000003-00003F
+      hash: d78032be8025a80e06fbd0ec977de89ae05e2b04ddb3ad3849e7a4d827296336
+      sentence: ワーカー切断スレッドは、まずワーカーに対して、切断通知メッセージ（DISCONN）を送信する。その後、ワーカーオブジェクト内のソケット情報を使って、ワーカーとのTCP接続を切断する。切断が完了したら、メインループに、切断メッセージ（DISCONNECT）を送信し、ワーカー切断スレッドを終了する。切断メッセージには、ワーカーIDを載せる。
+    - id: SCIK9X27-000003-00002A
+      hash: 43850832568dd44ee4ed138e730e97baac852ebdc870c2aee65a0d998971beca
+      sentence: ワーカー切断スレッドには切断タイムアウトを設け、5秒たっても戻ってこなかった場合も、強制的にメインループに切断メッセージ（DISCONNECT）を送信し、ワーカー切断スレッドを終了する。
+    - id: SCIK9X27-000003-00002B
+      hash: 1f3830f79c23ef1939210947fe281646e3fc9b93993da69f385227b2b64a8988
+      sentence: メインループがDISCONNECTメッセージを受信したら、そこに書かれているワーカーIDを持つワーカーオブジェクトを削除する。
+    - id: SCIK9X27-000003-00002C
+      hash: 796aaa3afbd95285237549a41d133dfee52b0c9a8d5810e84ba587c39ac61eee
+      sentence: タイマーイベントメッセージを受信すると、以下の処理を実施する。
+    - id: SCIK9X27-000003-00002D
+      hash: 6a070bcb7f7d43fb0cf73bcb6241c891e7a5ce23c9f3c635219ee6fea413f454
+      sentence: .tasks/pending/および.tasks/working/以下のファイル数のチェック
+    - id: SCIK9X27-000003-00002E
+      hash: 8d002b2565b197f5e67b449341bb0e3ba93ebea0085e5fab2a1c62f1eb6b0734
+      sentence: タスクワーカーの接続状態のチェック
+    - id: SCIK9X27-000003-00002F
+      hash: 0d93a41c316f938eb26d74d73ab0a038db2691fad29ddf9800bc3551bc1bdf1e
+      sentence: ファイル数のチェックでは、.tasks/pending/と.tasks/working/以下のファイル数を数え、ファイル数の合計が0だった場合、COMPLETEDメッセージをメインループに送信する。
+    - id: SCIK9X27-000003-000030
+      hash: 3b9658c1729a2886edb9e8f8ad47f04f24278f2fbfd3878455b1d70f5c8f1c62
+      sentence: タスクワーカーの接続状態のチェックは、参入しているワーカーそれぞれに対してヘルスチェックメッセージを送る。ヘルスチェックメッセージはtype=CHECK、req_idはリクエストID（乱数）とする。
+    - id: SCIK9X27-000003-00003D
+      hash: ecda31f42308a011380e1ab0424ad0915357f59414e0d2f753db4e2a201bc03d
+      sentence: それぞれのワーカーにヘルスチェックメッセージを送信する際に、対象のワーカーオブジェクトのリクエスト情報として、リクエストIDと現在時刻+10秒のタイムアウト時刻を追記する。そのリクエスト情報を引数として、タイムアウト監視スレッドを起動する。
+    - id: SCIK9X27-000003-000032
+      hash: fc4087f2771d6ada36d4a4283fed10c57a6f1ca0e5719d266a4cc1d8d172c0f8
+      sentence: 送信先となるワーカーとのコネクションが切断していて、ヘルスチェックの送信に失敗してしまった場合は、そのワーカーオブジェクトに対してワーカー切断処理を実施する。
+    - id: SCIK9X27-000003-000033
+      hash: 416a7e794b80591f3793687fcfbc27cd46fffe43431f7f2ab2158cb59d22a6b2
+      sentence: メインループがヘルスチェックの応答（CHECK_ACK）を受信すると、メッセージに書かれたリクエストIDをもつワーカーオブジェクトを取得し、該当するリクエストIDを持つリクエスト情報を削除する。
+    - id: SCIK9X27-000003-00003D
+      hash: 9f4d4d6acf4d7f306477048ce6e2859d76972294929c685b2b899a0300147de0
+      sentence: タスク管理マスタ終了処理では、.task/working/以下に実施中のプロンプトファイルが残っていれば、それらをすべて.tasks/pending/に移動する。また、合計稼働時間、全タスク数、成功タスク数、失敗タスク数を表示するとともに、全てのTCPコネクションを切断し、タスク管理マスタを終了する。
+    - id: SCIK9X27-000003-000035
+      hash: 82371215078529275ac2befebbfc1e838e3e8530ee4f5133460b4196f2dd5ad2
+      sentence: コネクションの切断タイムアウトを10秒とし、タイムアウトしたら、プログラムを強制終了する。切断タイムアウトをブロックしないように注意する。
+    - id: SCIK9X27-000003-000036
+      hash: 419a6720636a6f0249f10fbe600a12994fd007670309a6bf8f1d567cf46e4588
+      sentence: タスク管理マスタ終了処理中にCtrl-C（SIG_TERM）が発生したら、即座にプログラムを終了する。
+    - id: SCIK9X27-000003-000037
+      hash: d3d93b0bde896bfc67c87aed19325d7761876147bd7669eeef8b2736a753fb41
+      sentence: '1. REQUEST送信時: リクエスト情報を配列に追加、タイムアウト監視スレッド起動'
+    - id: SCIK9X27-000003-000038
+      hash: 48cf77bcc2ec032f8faa04c94814a59d39eec359bca0528d97eeffaa69365d19
+      sentence: '2. REQUEST_ACK受信時: 稼働状態をworkingに変更、リクエスト情報を配列から削除'
+    - id: SCIK9X27-000003-000039
+      hash: d5540a0ccbe0f6d9e702b077d8cfb6248a30dd60c0a7f19eac5b78d8493346e6
+      sentence: 3. TIMEOUT_CHECK受信時
+    - id: SCIK9X27-000003-00003A
+      hash: 6738cc3940c12df537599a343ab71bb574e3f463354790eb46559de2d4d32a81
+      sentence: '   * リクエスト情報が存在しない場合（ACKで既に削除済み）→ 何もしない'
+    - id: SCIK9X27-000003-00003B
+      hash: a41df49e1314807008b667b64e698bb8fdc32e739b4a3c2b8cd96053b831eaf5
+      sentence: '   * リクエスト情報が存在する場合（ACK未受信）→ タイムアウト判定して切断処理'

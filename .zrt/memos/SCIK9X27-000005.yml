@@ -1,0 +1,63 @@
+info:
+    id: SCIK9X27-000005
+    path: docs/テストシナリオ.md
+sentences:
+    - id: SCIK9X27-000005-000000
+      hash: 8903943634657958b7cf588f7578098c64734d4143595f7f3188292c5609790e
+      sentence: workerのライフサイクルをテストする。
+    - id: SCIK9X27-000005-000001
+      hash: 8f57b7b770d98031387759c4c5758b56b92535f49070ffda31d7049deb72faed
+      sentence: workerがタスク指示を受け取る
+    - id: SCIK9X27-000005-000002
+      hash: 2b8851dea7ffa58a2bd2a83ef7da537151c857a6a3ecc70c13ed7acf221d24a3
+      sentence: aiコルーチンを起動して、タスクを実行する
+    - id: SCIK9X27-000005-000003
+      hash: 40204725ef0ead46c69c65d69c4978ab7ed91bc50731c10bfeaf1e8a5367e925
+      sentence: AIエージェントによるタスクが完了したあと、タスク完了通知を出して、aiコルーチンを終了する
+    - id: SCIK9X27-000005-000004
+      hash: 6c6d61aae80c81da43f1181a47ce2d3a09cb511497e38bc618570114dd749e91
+      sentence: タスク指示とリストを作り、masterと1つのworkerの状況を作り、正常動作を確認する。タスク指示とリストは以下の通り。
+    - id: SCIK9X27-000005-000005
+      hash: e84221e1d7363861a690bded62db2233c9e1dc692373a87dd32fd838ed257c53
+      sentence: |-
+        ```text
+        指定された数値について、以下の計算を行ってください：
+        1. その数値の2乗を計算
+        2. その数値が素数かどうかを判定
+        3. その数値の約数をすべて列挙
+        計算結果はcalculations/ディレクトリに、「calc_<数値>.txt」というファイル名で保存してください。
+        ```
+    - id: SCIK9X27-000005-000006
+      hash: 70d00a3ef19e9dd460db510045efda0bbf32f774889ae9d6e0f4dbfcf532840f
+      sentence: |-
+        ```text
+        17
+        25
+        31
+        ```
+    - id: SCIK9X27-000005-000007
+      hash: 587edbea9adaaa5381340b7280c74cb087d335fdae0918b341eed9bcb9829cb2
+      sentence: タスク指示とリストを作り、masterと3つのworkerの状況を作り、正常動作を確認する。タスク指示とリストは以下の通り。
+    - id: SCIK9X27-000005-000005
+      hash: e84221e1d7363861a690bded62db2233c9e1dc692373a87dd32fd838ed257c53
+      sentence: |-
+        ```text
+        指定された数値について、以下の計算を行ってください：
+        1. その数値の2乗を計算
+        2. その数値が素数かどうかを判定
+        3. その数値の約数をすべて列挙
+        計算結果はcalculations/ディレクトリに、「calc_<数値>.txt」というファイル名で保存してください。
+        ```
+    - id: SCIK9X27-000005-000009
+      hash: 9d9529f20ccf4d3731c191387009f6b94b99818cc03795cdc0b2399f3db30137
+      sentence: |-
+        ```text
+        17
+        25
+        31
+        42
+        67
+        100
+        127
+        256
+        ```

@@ -1,10 +1,14 @@
 module github.com/quvox/task_organizer
 
-replace (
-	github.com/quvox/task_organizer/internal/create => ./src/internal/create
-	github.com/quvox/task_organizer/internal/master => ./src/internal/master
-	github.com/quvox/task_organizer/internal/worker => ./src/internal/worker
-	github.com/quvox/task_organizer/internal/common => ./src/internal/common
+go 1.22
+
+require (
+	github.com/google/uuid v1.6.0
+	github.com/sirupsen/logrus v1.9.3
+	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
 )
 
-go 1.22.4
+require (
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
+)

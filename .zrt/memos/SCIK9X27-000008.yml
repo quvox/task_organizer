@@ -1,0 +1,28 @@
+info:
+    id: SCIK9X27-000008
+    path: docs/要件.md
+sentences:
+    - id: SCIK9X27-000008-000000
+      hash: 3e925e1b696663be91ec51b2debbb86531802926bf3e882d278da0e4db2b41e3
+      sentence: ツール名は、taskorganizerとする。
+    - id: SCIK9X27-000008-000001
+      hash: 373305185299b2b36ddfb818b9662bd898169e26e897548cfc745d93c1a31143
+      sentence: このツールには、タスク生成機能、タスク管理機能、タスクワーカー機能という3つの機能を持ち、コマンド引数でどの機能を利用するかを選ぶ。
+    - id: SCIK9X27-000008-000002
+      hash: 75142772e8a6d0787a922acbfa380ab4a82e82865ce9b379f2c988928dedab43
+      sentence: このツールは、src/の下にgoで実装する。
+    - id: SCIK9X27-000008-000003
+      hash: c8a441da641997ddc1f5e76e83ba793ac53926834cea0f1b6295e7484ba32a1f
+      sentence: ビルドやインストールのためのMakefileを用意する。
+    - id: SCIK9X27-000008-000004
+      hash: caf7b79deb7e454c4aafe699e687a935b88559c33b8484213350d74dcd8dbc2a
+      sentence: macOS、Linux、windowsに対応した実行バイナリをビルドできるようにする。
+    - id: SCIK9X27-000008-000005
+      hash: 390a66baf83c9cdbe5e37e2ca5ceff48f16ac8f413ec81697d2df50141d00817
+      sentence: loggingライブラリを使って、システムログやデバッグログを出力できるようにし、debug/info/warn/fatalのログレベルを選択できるようにする。
+    - id: SCIK9X27-000008-000006
+      hash: 0be349801b56d8e8f0ad22f1c6ef9d92dbd6ed586f06d8267fdf698def83a12a
+      sentence: タスクの進行状況を保存し、途中から再開できるようにする。
+    - id: SCIK9X27-000008-000007
+      hash: 2b3840553aa25d1740fd858005cacce0f367c5205852a99ef49bea0c20b58f43
+      sentence: AIエージェントにclaudeを用いる場合、ワーカーごとにセッションを引き継ぎ、初回起動時のオーバーヘッドの発生を防ぐ。

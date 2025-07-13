@@ -1,0 +1,31 @@
+info:
+    name: taskorganizer
+    id: SCIK9X27
+memos:
+    - id: SCIK9X27-000000
+      path: docs/claude-session-management.md
+      need_analyze: true
+    - id: SCIK9X27-000001
+      path: docs/タスクワーカー.md
+      need_analyze: true
+    - id: SCIK9X27-000002
+      path: docs/タスク生成.md
+      need_analyze: true
+    - id: SCIK9X27-000003
+      path: docs/タスク管理マスタ.md
+      need_analyze: true
+    - id: SCIK9X27-000004
+      path: docs/ツールの動作イメージ.md
+      need_analyze: true
+    - id: SCIK9X27-000005
+      path: docs/テストシナリオ.md
+      need_analyze: true
+    - id: SCIK9X27-000006
+      path: docs/メッセージフォーマット.md
+      need_analyze: true
+    - id: SCIK9X27-000007
+      path: docs/実現したいこと.md
+      need_analyze: true
+    - id: SCIK9X27-000008
+      path: docs/要件.md
+      need_analyze: true

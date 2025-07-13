@@ -1,265 +1,442 @@
 package master
 
 import (
+	"bufio"
 	"context"
-	"flag"
+	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net"
 	"os"
-	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/quvox/task_organizer/internal/common"
+	"github.com/sirupsen/logrus"
 )
 
-/*
-@obj: タスク管理マスタの設定構造体
-@ref: IPS3MKEQ-000002-000001 "引数には、待受ポート番号を与える。ただしデフォルト設定を34567とする。"
-@ref: IPS3MKEQ-000002-000002 "さらにオプショナル引数でルートディレクトリパスを指定する。"
-*/
-type Config struct {
-	Port    int
-	RootDir string
-}
-
-/*
-@obj: タスク管理マスタの構造体
-@ref: IPS3MKEQ-000002-000005 "タスク管理マスタを起動すると、すぐにメインループに入ると同時に、タイマースレッドを起動する。"
-*/
-type Master struct {
-	config    Config
-	ctx       context.Context
-	cancel    context.CancelFunc
-	workers   map[string]*Worker
-	workersMu sync.RWMutex
-	listener  net.Listener
-	msgChan   chan WorkerMessage
-	startTime time.Time
-	stats     Statistics
-	wg        sync.WaitGroup
-	connMap   map[string]net.Conn
-	connMu    sync.RWMutex
-}
-
-/*
-@obj: ワーカー情報を管理する構造体
-@ref: IPS3MKEQ-000002-000010 "タスク管理マスタは、参入しているタスクワーカーごとに、接続状態およびタスク稼働状態をワーカーオブジェクトで管理する。"
-@ref: IPS3MKEQ-000002-000011 "ワーカーオブジェクトでは、以下の情報を管理する。"
-*/
-type Worker struct {
-	// @ref: IPS3MKEQ-000002-000012 "コネクションに紐づくソケット情報"
-	conn net.Conn
-	// @ref: IPS3MKEQ-000002-000013 "ワーカーID"
-	id string
-	// @ref: IPS3MKEQ-000002-000014 "対応中の.tasks/working/のファイル名"
-	workingFile string
-	// @ref: IPS3MKEQ-000002-000015 "稼働状態（idle/requesting/working/disconnecting）"
-	state WorkerState
-	// @ref: IPS3MKEQ-000002-000016 "リクエスト情報配列（複数のリクエスト情報を格納できるようにする）"
-	requests []RequestInfo
-	mu       sync.Mutex
-}
-
-/*
-@obj: ワーカーの稼働状態
-@ref: IPS3MKEQ-000002-000015 "稼働状態（idle/requesting/working/disconnecting）"
-*/
-type WorkerState string
+// WorkerState はワーカーの状態を表す
+// @obj: ワーカーの稼働状態管理（idle/requesting/working/disconnecting）
+// @ref: SCIK9X27-000003-000015
+type WorkerState int
 
 const (
-	StateIdle          WorkerState = "idle"
-	StateRequesting    WorkerState = "requesting"
-	StateWorking       WorkerState = "working"
-	StateDisconnecting WorkerState = "disconnecting"
+	StateIdle         WorkerState = iota // アイドル状態
+	StateRequesting                      // タスク要求中
+	StateWorking                         // タスク実行中
+	StateDisconnecting                   // 切断処理中
 )
 
-/*
-@obj: リクエスト情報構造体
-@ref: IPS3MKEQ-000002-000017 "リクエスト情報は、リクエストIDとタイムアウト時刻の組みで表される"
-*/
+// RequestInfo は個別リクエストの情報を保持する構造体
+// @obj: リクエストIDとタイムアウト時刻の組み
+// @ref: SCIK9X27-000003-000017
 type RequestInfo struct {
-	RequestID string
+	ID        string
 	Timeout   time.Time
+	TaskFile  string
+	Type      common.MessageType
 }
 
-/*
-@obj: ワーカーからのメッセージを表す構造体
-*/
-type WorkerMessage struct {
-	WorkerID string
+// WorkerInfo はワーカーの情報を保持する構造体
+// @obj: ワーカーオブジェクトで管理する情報（ソケット、ID、ファイル名、稼働状態、リクエスト情報配列）
+// @ref: SCIK9X27-000003-000011, SCIK9X27-000003-000012, SCIK9X27-000003-000013, SCIK9X27-000003-000014, SCIK9X27-000003-000015, SCIK9X27-000003-000016
+type WorkerInfo struct {
+	ID              string
+	Conn            net.Conn
+	State           WorkerState
+	CurrentTask     string
+	LastHealthCheck time.Time
+	RequestTime     time.Time
+	RequestID       string
+	// @obj: 複数リクエスト情報の配列
+	// @ref: SCIK9X27-000003-000016, SCIK9X27-000003-000017
+	ActiveRequests  map[string]*RequestInfo
+	mu              sync.Mutex
+}
+
+// TaskMaster はタスク管理マスターの主要構造体
+// @obj: タスク管理マスターの機能を提供
+// @ref: SCIK9X27-000003-000000, SCIK9X27-000003-000001
+type TaskMaster struct {
+	rootDir       string
+	port          int
+	logger        *logrus.Logger
+	workers       map[string]*WorkerInfo
+	workersMu     sync.RWMutex
+	listener      net.Listener
+	ctx           context.Context
+	cancel        context.CancelFunc
+	msgChan       chan *InternalMessage
+	wg            sync.WaitGroup
+	// @obj: 統計情報の追跡
+	// @ref: SCIK9X27-000003-000034
+	startTime     time.Time
+	totalTasks    int
+	successTasks  int
+	failedTasks   int
+	statsMu       sync.Mutex
+}
+
+// InternalMessage は内部メッセージ構造体
+// @obj: ワーカーからのメッセージとその送信元を管理
+// @ref: SCIK9X27-000003-00000E
+type InternalMessage struct {
 	Message  *common.Message
+	WorkerID string
 }
 
-/*
-@obj: 統計情報を管理する構造体
-@ref: IPS3MKEQ-000002-000034 "タスク管理マスタ終了処理では、合計稼働時間、全タスク数、成功タスク数、失敗タスク数を表示する"
-*/
-type Statistics struct {
-	TotalTasks   int
-	SuccessTasks int
-	FailedTasks  int
-	mu           sync.Mutex
-}
-
-/*
-@obj: タスク管理マスタのメイン処理
-@ref: IPS3MKEQ-000002-000000 "タスク管理マスタは、`taskorganizer master`で起動する。"
-*/
-func Run(args []string) error {
-	/*
-	@obj: コマンドライン引数を解析する
-	@ref: IPS3MKEQ-000002-000001 "引数には、待受ポート番号を与える。ただしデフォルト設定を34567とする。"
-	@ref: IPS3MKEQ-000002-000002 "さらにオプショナル引数でルートディレクトリパスを指定する。"
-	*/
-	fs := flag.NewFlagSet("master", flag.ExitOnError)
-	rootDir := fs.String("root-dir", ".", "Root directory path")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	port := 34567
-	if fs.NArg() > 0 {
-		if _, err := fmt.Sscanf(fs.Arg(0), "%d", &port); err != nil {
-			return fmt.Errorf("invalid port number: %s", fs.Arg(0))
-		}
-	}
-
-	/*
-	@obj: ルートディレクトリを絶対パスに変換する
-	@ref: IPS3MKEQ-000002-000002 "なお、デフォルトのルートディレクトリはスクリプトを実行した時のカレントディレクトリとする。"
-	*/
-	absRootDir, err := filepath.Abs(*rootDir)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path of root directory: %w", err)
-	}
-
-	config := Config{
-		Port:    port,
-		RootDir: absRootDir,
-	}
-
-	/*
-	@obj: マスター構造体を初期化する
-	*/
+// NewTaskMaster は新しいTaskMasterインスタンスを作成する
+// @obj: タスク管理マスターのインスタンス生成
+// @ref: SCIK9X27-000003-000001, SCIK9X27-000003-000002
+func NewTaskMaster(rootDir string, port int, logger *logrus.Logger) *TaskMaster {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Master{
-		config:    config,
-		ctx:       ctx,
-		cancel:    cancel,
-		workers:   make(map[string]*Worker),
-		msgChan:   make(chan WorkerMessage, 100),
-		startTime: time.Now(),
-		connMap:   make(map[string]net.Conn),
+	return &TaskMaster{
+		rootDir:      rootDir,
+		port:         port,
+		logger:       logger,
+		workers:      make(map[string]*WorkerInfo),
+		ctx:          ctx,
+		cancel:       cancel,
+		msgChan:      make(chan *InternalMessage, 100),
+		startTime:    time.Now(),
+		totalTasks:   0,
+		successTasks: 0,
+		failedTasks:  0,
+	}
+}
+
+// Run はタスク管理マスターのメイン処理を実行する
+// @obj: TCPサーバーの起動とメインループの実行
+// @ref: SCIK9X27-000003-000003, SCIK9X27-000003-000005
+func (tm *TaskMaster) Run() error {
+	// @obj: TCPリスナーの起動
+	// @ref: SCIK9X27-000003-000003
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", tm.port))
+	if err != nil {
+		return fmt.Errorf("failed to start TCP listener: %w", err)
+	}
+	tm.listener = listener
+	tm.logger.Infof("Task master listening on port %d", tm.port)
+
+	// @obj: タスクディレクトリの存在確認
+	// @ref: SCIK9X27-000003-000006
+	tasksDir := filepath.Join(tm.rootDir, ".tasks")
+	if _, err := os.Stat(tasksDir); os.IsNotExist(err) {
+		return fmt.Errorf(".tasks directory not found at %s", tasksDir)
 	}
 
-	/*
-	@obj: シグナルハンドラを設定する
-	@ref: IPS3MKEQ-000002-00000C "タスク管理マスタのメインループ中に、Ctrl-C（SIG_TERM）が発生したら、待ち受けループを脱出して、タスク管理マスタ終了処理を実施する。"
-	*/
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	// シグナルハンドラーの設定
+	tm.setupSignalHandler()
+
+	// メインループの開始
+	tm.wg.Add(1)
+	go tm.mainLoop()
+
+	// @obj: タイマースレッドの開始
+	// @ref: SCIK9X27-000003-000005, SCIK9X27-000003-000011
+	tm.wg.Add(1)
+	go tm.timerThread()
+
+	// 接続受付ループを別のgoroutineで実行
+	tm.wg.Add(1)
 	go func() {
-		<-sigChan
-		log.Println("Received interrupt signal, shutting down...")
-		m.cancel()
+		defer tm.wg.Done()
+		tm.acceptConnections()
 	}()
 
-	return m.run()
-}
-
-/*
-@obj: マスターのメイン処理を実行する
-@ref: IPS3MKEQ-000002-000005 "タスク管理マスタを起動すると、すぐにメインループに入ると同時に、タイマースレッドを起動する。"
-*/
-func (m *Master) run() error {
-	/*
-	@obj: TCPリスナーを開始する
-	@ref: IPS3MKEQ-000002-000008 "タスクワーカーからのTCP接続受け入れ（bindするIPは0.0.0.0とする）"
-	*/
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", m.config.Port))
-	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %w", m.config.Port, err)
+	// シャットダウン待機
+	<-tm.ctx.Done()
+	
+	// リスナーを閉じてAcceptブロックを解除
+	if tm.listener != nil {
+		tm.listener.Close()
 	}
-	m.listener = listener
-	defer listener.Close()
+	
+	tm.handleShutdown()
 
-	log.Printf("Task master started on port %d", m.config.Port)
-
-	/*
-	@obj: タイマースレッドを起動する
-	@ref: IPS3MKEQ-000002-00000E "タイマースレッドは、定期的にタイマーイベントメッセージをメインループに送信する。デフォルト設定は10秒ごととする。"
-	*/
-	m.wg.Add(1)
-	go m.timerThread()
-
-	/*
-	@obj: TCP接続受け入れゴルーチンを起動する
-	@ref: IPS3MKEQ-000002-000008 "タスクワーカーからのTCP接続受け入れ"
-	*/
-	m.wg.Add(1)
-	go m.acceptConnections()
-
-	/*
-	@obj: メインループを実行する
-	@ref: IPS3MKEQ-000002-000006 "メインループでは、イベントやメッセージの待ち受けと、ワーカーの動作状態の管理を実施する。"
-	*/
-	m.mainLoop()
-
-	/*
-	@obj: 終了処理を実行する
-	@ref: IPS3MKEQ-000002-000034 "タスク管理マスタ終了処理では、合計稼働時間、全タスク数、成功タスク数、失敗タスク数を表示するとともに、全てのTCPコネクションを切断し、タスク管理マスタを終了する。"
-	*/
-	return m.shutdown()
+	// 終了待機
+	tm.wg.Wait()
+	return nil
 }
 
-/*
-@obj: メインループを実行する
-@ref: IPS3MKEQ-000002-000006 "メインループでは、イベントやメッセージの待ち受けと、ワーカーの動作状態の管理を実施する。"
-@ref: IPS3MKEQ-000002-000007 "メインループでは、以下のイベントを待つ。"
-*/
-func (m *Master) mainLoop() {
+// acceptConnections は新しい接続を受け付ける
+// @obj: ワーカーからのTCP接続を受付
+// @ref: SCIK9X27-000003-000004
+func (tm *TaskMaster) acceptConnections() {
+	tm.logger.Debug("[MASTER] Accept connections loop started")
+	defer tm.logger.Debug("[MASTER] Accept connections loop stopped")
+	
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-tm.ctx.Done():
+			tm.logger.Debug("[MASTER] Context cancelled, stopping accept loop")
 			return
+		default:
+		}
+		
+		conn, err := tm.listener.Accept()
+		if err != nil {
+			select {
+			case <-tm.ctx.Done():
+				tm.logger.Debug("[MASTER] Accept error during shutdown, stopping")
+				return
+			default:
+				tm.logger.Errorf("[MASTER] Failed to accept connection: %v", err)
+				continue
+			}
+		}
 
-		case msg := <-m.msgChan:
-			/*
-			@obj: ワーカーメッセージを処理する
-			@ref: IPS3MKEQ-000002-000009 "タスクワーカーからの各種メッセージの受信（JOIN、DONE/FAILED、LEAVE、CHECK_ACK, USAGE_LIMITED）"
-			@ref: IPS3MKEQ-000002-00000A "タイマースレッドから発行されるタイマーイベントメッセージ（TIMER）の受信"
-			@ref: IPS3MKEQ-000002-00000B "別スレッドからのメッセージ受信（COMPLETED、DISCONNECT、TIMEOUT_CHECK）"
-			*/
-			m.handleMessage(msg)
+		// @obj: 新しいワーカー接続の処理
+		// @ref: SCIK9X27-000003-000004
+		tm.logger.Debugf("[MASTER] Accepted new connection from %s", conn.RemoteAddr())
+		tm.wg.Add(1)
+		go tm.handleWorkerConnection(conn)
+	}
+}
 
-			/*
-			@obj: 新しいタスクがあれば割り当てる
-			@ref: IPS3MKEQ-000002-00001A "何らかのイベントが起こるたびに、まだ.tasks/pending/の下にファイルが残っていないかを確認し、残っていれば、以下のタスク依頼処理を実施する。"
-			*/
-			m.assignPendingTasks()
+// handleWorkerConnection はワーカー接続を処理する
+// @obj: 個別のワーカー接続を管理
+// @ref: SCIK9X27-000003-000004, SCIK9X27-000003-00000E
+func (tm *TaskMaster) handleWorkerConnection(conn net.Conn) {
+	defer tm.wg.Done()
+	defer func() {
+		tm.logger.Debugf("[MASTER] Closing connection to %s", conn.RemoteAddr())
+		conn.Close()
+	}()
+	
+	tm.logger.Debugf("[MASTER] Handling worker connection from %s", conn.RemoteAddr())
+
+	reader := bufio.NewReader(conn)
+	workerID := ""
+
+	for {
+		select {
+		case <-tm.ctx.Done():
+			return
+		default:
+		}
+
+		// @obj: メッセージの読み取り（改行区切り）
+		// @ref: SCIK9X27-000006-000013
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err != io.EOF {
+				tm.logger.Errorf("[WORKER->MASTER] Error reading from worker %s: %v", workerID, err)
+			} else {
+				tm.logger.Debugf("[WORKER->MASTER] Worker %s disconnected", workerID)
+			}
+			if workerID != "" {
+				tm.removeWorker(workerID)
+			}
+			return
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// @obj: JSONメッセージのパース
+		// @ref: SCIK9X27-000006-000000
+		tm.logger.Debugf("[WORKER->MASTER] Received raw message: %s", strings.TrimSpace(line))
+		var msg common.Message
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			tm.logger.Errorf("[WORKER->MASTER] Failed to parse message from worker: %v", err)
+			continue
+		}
+		tm.logger.Debugf("[WORKER->MASTER] Parsed message: %s", msg.String())
+
+		// @obj: JOINメッセージの特別処理
+		// @ref: SCIK9X27-000003-000007, SCIK9X27-000003-000008
+		if msg.Type == common.TypeJoin {
+			workerID = msg.Msg
+			tm.addWorker(workerID, conn)
+			
+			// JOIN_ACKの送信
+			ackMsg := common.NewMessage(common.TypeJoinAck, "", "")
+			if err := tm.sendMessage(conn, ackMsg); err != nil {
+				tm.logger.Errorf("Failed to send JOIN_ACK to worker %s: %v", workerID, err)
+				return
+			}
+			tm.logger.Infof("Worker %s joined", workerID)
+			continue
+		}
+
+		// @obj: その他のメッセージをメインループに転送
+		// @ref: SCIK9X27-000003-00000E
+		if workerID != "" {
+			tm.logger.Debugf("[MASTER] @@@@@ QUEUING MESSAGE TO MAIN LOOP: Type=%s, WorkerID=%s, ChannelLen=%d @@@@@", msg.Type, workerID, len(tm.msgChan))
+			tm.msgChan <- &InternalMessage{
+				Message:  &msg,
+				WorkerID: workerID,
+			}
+			tm.logger.Debugf("[MASTER] @@@@@ MESSAGE QUEUED SUCCESSFULLY, ChannelLen=%d @@@@@", len(tm.msgChan))
+		} else {
+			tm.logger.Warnf("[MASTER] !!!!! DROPPING MESSAGE FROM UNKNOWN WORKER: %s !!!!!", msg.String())
 		}
 	}
 }
 
-// 以下、各種ハンドラやヘルパー関数の実装が続きますが、文字数制限のため省略します。
-// 実装が必要な主な関数：
-// - acceptConnections()
-// - timerThread()
-// - handleMessage()
-// - assignPendingTasks()
-// - handleJoin()
-// - handleRequestAck()
-// - handleTaskResult()
-// - handleCheckAck()
-// - handleTimer()
-// - handleTimeoutCheck()
-// - handleDisconnect()
-// - sendHealthCheck()
-// - disconnectWorker()
-// - shutdown()
-// など
+// sendMessage はワーカーにメッセージを送信する
+// @obj: TCP接続を通じてJSONメッセージを送信
+// @ref: SCIK9X27-000006-000013
+func (tm *TaskMaster) sendMessage(conn net.Conn, msg *common.Message) error {
+	tm.logger.Debugf("[MASTER->WORKER] Sending message: %s", msg.String())
+	data, err := msg.Marshal()
+	if err != nil {
+		tm.logger.Errorf("[MASTER->WORKER] Failed to marshal message: %v", err)
+		return err
+	}
+	_, err = conn.Write(data)
+	if err != nil {
+		tm.logger.Errorf("[MASTER->WORKER] Failed to write message: %v", err)
+	} else {
+		tm.logger.Debugf("[MASTER->WORKER] Message sent successfully: %s", msg.Type)
+	}
+	return err
+}
+
+// addWorker はワーカーを登録する
+// @obj: 新しいワーカーの情報を管理マップに追加
+// @ref: SCIK9X27-000003-000007
+func (tm *TaskMaster) addWorker(workerID string, conn net.Conn) {
+	tm.workersMu.Lock()
+	defer tm.workersMu.Unlock()
+
+	tm.workers[workerID] = &WorkerInfo{
+		ID:              workerID,
+		Conn:            conn,
+		State:           StateIdle,
+		LastHealthCheck: time.Now(),
+		ActiveRequests:  make(map[string]*RequestInfo),
+	}
+}
+
+// removeWorker はワーカーを削除する
+// @obj: 切断したワーカーの情報を削除
+// @ref: SCIK9X27-000003-00001C
+func (tm *TaskMaster) removeWorker(workerID string) {
+	tm.workersMu.Lock()
+	defer tm.workersMu.Unlock()
+
+	if worker, exists := tm.workers[workerID]; exists {
+		// @obj: 実行中のタスクを.tasks/pending/に戻す
+		// @ref: SCIK9X27-000003-00001B
+		if worker.CurrentTask != "" && worker.State == StateWorking {
+			tm.returnTaskToPending(worker.CurrentTask)
+		}
+		delete(tm.workers, workerID)
+		tm.logger.Infof("Worker %s removed", workerID)
+	}
+}
+
+// returnTaskToPending はタスクをpendingディレクトリに戻す
+// @obj: 失敗または中断されたタスクを再実行可能にする
+// @ref: SCIK9X27-000003-00001B
+func (tm *TaskMaster) returnTaskToPending(taskFile string) {
+	workingPath := filepath.Join(tm.rootDir, ".tasks", "working", taskFile)
+	pendingPath := filepath.Join(tm.rootDir, ".tasks", "pending", taskFile)
+	
+	if err := os.Rename(workingPath, pendingPath); err != nil {
+		tm.logger.Errorf("Failed to return task %s to pending: %v", taskFile, err)
+	} else {
+		tm.logger.Infof("Returned task %s to pending", taskFile)
+	}
+}
+
+// incrementTotalTasks は全タスク数をインクリメントする
+// @obj: 統計追跡のための全タスク数カウンタの更新
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) incrementTotalTasks() {
+	tm.statsMu.Lock()
+	defer tm.statsMu.Unlock()
+	tm.totalTasks++
+}
+
+// incrementSuccessTasks は成功タスク数をインクリメントする
+// @obj: 統計追跡のための成功タスク数カウンタの更新
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) incrementSuccessTasks() {
+	tm.statsMu.Lock()
+	defer tm.statsMu.Unlock()
+	tm.successTasks++
+}
+
+// incrementFailedTasks は失敗タスク数をインクリメントする
+// @obj: 統計追跡のための失敗タスク数カウンタの更新
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) incrementFailedTasks() {
+	tm.statsMu.Lock()
+	defer tm.statsMu.Unlock()
+	tm.failedTasks++
+}
+
+// getStatistics は統計情報を取得する
+// @obj: 現在の統計情報のスナップショットを取得
+// @ref: SCIK9X27-000003-000034
+func (tm *TaskMaster) getStatistics() (time.Duration, int, int, int) {
+	tm.statsMu.Lock()
+	defer tm.statsMu.Unlock()
+	duration := time.Since(tm.startTime)
+	return duration, tm.totalTasks, tm.successTasks, tm.failedTasks
+}
+
+// addActiveRequest はワーカーのアクティブリクエストを追加する
+// @obj: ワーカーの複数リクエスト追跡に新しいリクエストを追加
+// @ref: SCIK9X27-000003-000016, SCIK9X27-000003-000017
+func (tm *TaskMaster) addActiveRequest(workerID string, requestID string, taskFile string, msgType common.MessageType) {
+	tm.workersMu.RLock()
+	worker, exists := tm.workers[workerID]
+	tm.workersMu.RUnlock()
+	
+	if exists {
+		worker.mu.Lock()
+		worker.ActiveRequests[requestID] = &RequestInfo{
+			ID:       requestID,
+			TaskFile: taskFile,
+			Timeout:  time.Now().Add(10 * time.Second),
+			Type:     msgType,
+		}
+		worker.mu.Unlock()
+	}
+}
+
+// removeActiveRequest はワーカーのアクティブリクエストを削除する
+// @obj: 完了または失敗したリクエストを追跡から削除
+// @ref: SCIK9X27-000003-000016, SCIK9X27-000003-000017
+func (tm *TaskMaster) removeActiveRequest(workerID string, requestID string) *RequestInfo {
+	tm.workersMu.RLock()
+	worker, exists := tm.workers[workerID]
+	tm.workersMu.RUnlock()
+	
+	if exists {
+		worker.mu.Lock()
+		defer worker.mu.Unlock()
+		
+		if requestInfo, exists := worker.ActiveRequests[requestID]; exists {
+			delete(worker.ActiveRequests, requestID)
+			return requestInfo
+		}
+	}
+	return nil
+}
+
+// findActiveRequest はリクエストIDから該当するワーカーとリクエスト情報を検索する
+// @obj: 全ワーカーからリクエストIDで検索
+// @ref: SCIK9X27-000003-000016, SCIK9X27-000003-000017
+func (tm *TaskMaster) findActiveRequest(requestID string) (*WorkerInfo, *RequestInfo) {
+	tm.workersMu.RLock()
+	defer tm.workersMu.RUnlock()
+	
+	for _, worker := range tm.workers {
+		worker.mu.Lock()
+		if requestInfo, exists := worker.ActiveRequests[requestID]; exists {
+			worker.mu.Unlock()
+			return worker, requestInfo
+		}
+		worker.mu.Unlock()
+	}
+	return nil, nil
+}
