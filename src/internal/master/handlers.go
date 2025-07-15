@@ -273,6 +273,15 @@ func (tm *TaskMaster) handleUsageLimited(worker *WorkerInfo, msg *common.Message
 
 	tm.logger.Warnf("Worker %s reached usage limit", worker.ID)
 	
+	// @obj: ワーカーに切断通知を送信してから切断処理を実施
+	// @ref: SCIK9X27-000003-000025
+	disconnectMsg := common.NewMessage(common.TypeDisconn, "Usage limit reached", "")
+	if err := tm.sendMessage(worker.Conn, disconnectMsg); err != nil {
+		tm.logger.Errorf("Failed to send disconnect message to usage limited worker %s: %v", worker.ID, err)
+	} else {
+		tm.logger.Infof("Sent disconnect notification to usage limited worker %s", worker.ID)
+	}
+	
 	// @obj: ワーカーオブジェクトに対してワーカー切断処理を実施
 	// @ref: SCIK9X27-000003-000025
 	tm.removeWorker(worker.ID)
